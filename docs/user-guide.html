@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>qzone-skill 使用指南</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm 16mm 16mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+    font-size: 10.5pt; line-height: 1.75; color: #1c1c1e; margin: 0;
+  }
+  h1 { font-size: 22pt; margin: 0 0 6px; letter-spacing: -0.3px; }
+  .sub { color: #6b7280; font-size: 10pt; margin-bottom: 26px; }
+  h2 {
+    font-size: 14pt; margin: 26px 0 10px; padding-bottom: 6px;
+    border-bottom: 2px solid #e5e7eb; page-break-after: avoid;
+  }
+  h3 { font-size: 11.5pt; margin: 18px 0 8px; color: #111827; page-break-after: avoid; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 8px 0; padding-left: 22px; }
+  li { margin: 4px 0; }
+  code {
+    font-family: "Cascadia Mono", Consolas, monospace; font-size: 9.5pt;
+    background: #f3f4f6; padding: 1px 5px; border-radius: 3px; color: #b91c1c;
+  }
+  pre {
+    background: #f8f9fb; border-left: 3px solid #4a7cff; padding: 10px 14px;
+    font-family: "Cascadia Mono", Consolas, monospace; font-size: 9pt; line-height: 1.6;
+    white-space: pre-wrap; word-break: break-all; margin: 10px 0; border-radius: 0 4px 4px 0;
+  }
+  pre code { background: none; padding: 0; color: #1f2937; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 9.5pt; }
+  th, td { border: 1px solid #e5e7eb; padding: 7px 10px; text-align: left; vertical-align: top; }
+  th { background: #f9fafb; font-weight: 600; }
+  .note {
+    background: #eff6ff; border-left: 3px solid #3b82f6; padding: 10px 14px;
+    margin: 12px 0; font-size: 9.8pt; border-radius: 0 4px 4px 0;
+  }
+  .warn {
+    background: #fff7ed; border-left: 3px solid #f97316; padding: 10px 14px;
+    margin: 12px 0; font-size: 9.8pt; border-radius: 0 4px 4px 0;
+  }
+  .step { display: flex; gap: 10px; margin: 10px 0; }
+  .step-num {
+    flex: 0 0 22px; height: 22px; border-radius: 50%; background: #4a7cff; color: #fff;
+    font-size: 9pt; text-align: center; line-height: 22px; font-weight: 700;
+  }
+  .muted { color: #6b7280; font-size: 9.5pt; }
+  .kv { font-size: 9.8pt; }
+  .pb { page-break-before: always; }
+</style>
+</head>
+<body>
+
+<h1>刷 QQ 空间</h1>
+<div class="sub">使用指南 · qzone-skill v1.0 · 让 AI 帮你读动态、点赞，全程不弹窗口</div>
+
+<h2>一、这个东西是干什么的</h2>
+
+<p>它是一个小工具，帮你在 QQ 空间里做两件事：</p>
+<ul>
+  <li><strong>读</strong>——把好友最近发的动态整理成一份清单（谁发的、说了什么、多久前、有没有图）</li>
+  <li><strong>赞</strong>——给指定的动态点赞，或者按你定的规则自动赞</li>
+</ul>
+
+<p>整个过程用的是<strong>无窗口的浏览器</strong>：你看不到任何窗口弹出来，它就悄悄跑完了。</p>
+
+<h3>它不做这些</h3>
+<ul>
+  <li>不自动评论、不自动发说说、不加好友</li>
+  <li>不保存你的 QQ 密码（登录只走手机扫码）</li>
+  <li>不上传任何数据（所有请求都是浏览器直接连腾讯）</li>
+</ul>
+
+<h2>二、准备</h2>
+
+<table>
+  <tr><th style="width:130px">需要</th><th>说明</th></tr>
+  <tr><td>电脑</td><td>Windows / macOS / Linux 都行</td></tr>
+  <tr><td>Node.js 22+</td><td>在命令行输入 <code>node -v</code> 能看到版本号就说明装了</td></tr>
+  <tr><td>浏览器</td><td>Windows 用系统自带的 Edge 即可；其他系统需要 Chrome</td></tr>
+  <tr><td>手机 QQ</td><td>只在第一次登录时用一次</td></tr>
+</table>
+
+<div class="note">
+<strong>不会用命令行？</strong>没关系，整个流程只有几条命令，下面每条都写好了，复制粘贴即可。在文件夹空白处按住 Shift + 右键，选「在此处打开 PowerShell 窗口」，就有一个能粘贴命令的地方了。
+</div>
+
+<h2>三、第一步：登录（只需要做一次）</h2>
+
+<div class="step"><div class="step-num">1</div><div>
+<p>在 <code>D:\qzone-skill</code> 这个文件夹里，跑：</p>
+<pre><code>node scripts/qzone.mjs login</code></pre>
+</div></div>
+
+<div class="step"><div class="step-num">2</div><div>
+<p>它会等 3 分钟，等着你扫码。同时把二维码存成一张图片，路径类似：</p>
+<pre><code>C:\Users\你的用户名\AppData\Roaming\qzone-skill\out\login-qr.png</code></pre>
+<p>打开这张图片，用<strong>手机 QQ</strong> 扫一下，手机上再点「确认登录」。</p>
+</div></div>
+
+<div class="step"><div class="step-num">3</div><div>
+<p>看到 <code>"ok": true</code> 就成功了。登录状态会存在电脑上，以后不用再扫。</p>
+<pre><code>{"ok": true, "uin": "123456789", "nickname": "你的昵称", "already": false}</code></pre>
+</div></div>
+
+<div class="warn">
+<strong>二维码过期了怎么办？</strong>重新跑一遍 <code>login</code> 就行。它自己也会每 25 秒重新截一次图，过期前扫都有效。
+</div>
+
+<h2>四、第二步：看看有什么动态</h2>
+
+<pre><code>node scripts/qzone.mjs feed --pretty</code></pre>
+
+<p>会输出一份清单，长这样：</p>
+
+<pre><code>{
+  "ok": true,
+  "count": 12,
+  "items": [
+    {
+      "key": "abc123",
+      "name": "张三",
+      "text": "今天去看了海，风很大但很舒服",
+      "time": "3小时前",
+      "liked": false,
+      "hasImage": true
+    }
+  ]
+}</code></pre>
+
+<table>
+  <tr><th style="width:110px">字段</th><th>意思</th></tr>
+  <tr><td><code>key</code></td><td>这条动态的编号，点赞时要用它</td></tr>
+  <tr><td><code>name</code></td><td>谁发的</td></tr>
+  <tr><td><code>text</code></td><td>正文（太长会截断到 500 字）</td></tr>
+  <tr><td><code>time</code></td><td>什么时候发的，是空间显示的原始文案</td></tr>
+  <tr><td><code>liked</code></td><td>你是不是已经赞过了</td></tr>
+  <tr><td><code>hasImage</code></td><td>带不带图</td></tr>
+</table>
+
+<p>想多看几条就把 <code>--scrolls</code> 调大，比如 <code>feed --scrolls 4</code>。每多滚一屏多等 1.5 秒。</p>
+
+<h2>五、第三步：点赞</h2>
+
+<h3>手动赞指定的</h3>
+<pre><code>node scripts/qzone.mjs like abc123</code></pre>
+<p>可以一次给多条：<code>like abc123 def456</code>。两条之间会隔 8 秒，这是为了防止触发风控。</p>
+
+<h3>自动赞（按规则）</h3>
+
+<p>先设置规则，再打开开关。规则的配置命令形如「键 值」：</p>
+
+<pre><code># 只赞 24 小时内的动态
+node scripts/qzone.mjs config auto.like.maxAgeHours 24
+
+# 一次最多赞 10 条
+node scripts/qzone.mjs config auto.like.maxPerRun 10
+
+# 只赞这两个人（留空 = 不按人筛）
+node scripts/qzone.mjs config auto.like.allowUsers "张三,李四"
+
+# 永远不赞这个人
+node scripts/qzone.mjs config auto.like.denyUsers "某某"
+
+# 正文含这些词就不赞
+node scripts/qzone.mjs config auto.like.denyKeywords "求转发,广告"
+</code></pre>
+
+<div class="warn">
+<strong>强烈建议先试运行一次</strong>，看看它会赞哪些、跳过哪些，确认没问题再真的开：
+<pre><code>node scripts/qzone.mjs auto --dry-run --pretty</code></pre>
+</div>
+
+<h3>真正开启</h3>
+
+<pre><code># 打开开关
+node scripts/qzone.mjs on
+
+# 挂成定时任务，每 30 分钟跑一次（关掉窗口也会跑）
+node scripts/qzone.mjs service install --interval 30
+</code></pre>
+
+<h3>想停下来的三种方式</h3>
+
+<table>
+  <tr><th style="width:150px">命令</th><th>效果</th><th>什么时候用</th></tr>
+  <tr><td><code>pause</code></td><td>立刻停手，不改配置</td><td>临时不想让它动，等下还要继续</td></tr>
+  <tr><td><code>off</code></td><td>关掉自动刷开关</td><td>不想要自动赞了</td></tr>
+  <tr><td><code>service uninstall</code></td><td>卸掉定时任务</td><td>彻底不让它自己跑</td></tr>
+</table>
+
+<p>恢复用 <code>resume</code>（对应 pause）和 <code>on</code>（对应 off）。</p>
+
+<h2 class="pb">六、常用命令一览</h2>
+
+<table>
+  <tr><th style="width:230px">命令</th><th>作用</th></tr>
+  <tr><td><code>node scripts/qzone.mjs login</code></td><td>扫码登录</td></tr>
+  <tr><td><code>node scripts/qzone.mjs status</code></td><td>看登录了没、开关开没开</td></tr>
+  <tr><td><code>node scripts/qzone.mjs feed</code></td><td>读动态</td></tr>
+  <tr><td><code>node scripts/qzone.mjs like &lt;编号&gt;</code></td><td>给指定动态点赞</td></tr>
+  <tr><td><code>node scripts/qzone.mjs auto --dry-run</code></td><td>预演：只说会赞什么，不动手</td></tr>
+  <tr><td><code>node scripts/qzone.mjs auto</code></td><td>跑一轮：读 + 按规则赞</td></tr>
+  <tr><td><code>node scripts/qzone.mjs on</code> / <code>off</code></td><td>开 / 关自动刷</td></tr>
+  <tr><td><code>node scripts/qzone.mjs pause</code> / <code>resume</code></td><td>紧急停 / 恢复</td></tr>
+  <tr><td><code>node scripts/qzone.mjs config</code></td><td>看全部设置</td></tr>
+  <tr><td><code>node scripts/qzone.mjs service install</code></td><td>挂定时任务</td></tr>
+  <tr><td><code>node scripts/qzone.mjs logout</code></td><td>退出登录</td></tr>
+</table>
+
+<h2>七、文件都在哪</h2>
+
+<p>代码在 <code>D:\qzone-skill</code>。你自己的数据不在代码里，在：</p>
+
+<pre><code>C:\Users\你的用户名\AppData\Roaming\qzone-skill\
+├─ config.json     你的设置
+├─ state.json      赞过哪些（用来去重，不用手改）
+├─ browser\        登录状态（等于你的账号，别发给别人）
+├─ out\            二维码、截图
+└─ logs\auto.log   定时任务的运行日志</code></pre>
+
+<div class="warn">
+<code>browser</code> 这个文件夹等同于你的 QQ 空间登录状态。不要打包发人、不要传到网盘。要退出登录就运行 <code>logout</code>，它会把这个文件夹删掉。
+</div>
+
+<h2>八、常见问题</h2>
+
+<h3>读出来是 0 条</h3>
+<p>八成是登录失效了。跑 <code>status</code>，看 <code>loggedIn</code> 是不是 <code>false</code>；是的话重新 <code>login</code>。</p>
+
+<h3>点赞说「点了但状态没变」</h3>
+<p>通常是赞得太频繁被风控了。<strong>停下来，隔几个小时再说，不要连着试</strong>，越试越糟。</p>
+
+<h3>定时任务装了但没动静</h3>
+<p>先看日志有没有新内容：</p>
+<pre><code>Get-Content "$env:APPDATA\qzone-skill\logs\auto.log" -Encoding utf8 -Tail 20</code></pre>
+<p>没有新内容就查任务在不在：<code>node scripts/qzone.mjs service status</code>。</p>
+
+<h3>想让 AI 自己去刷</h3>
+<p>把 <code>SKILL.md</code> 给你的 AI（比如支持技能的助手）就行。里面写清了每个命令怎么用、什么时候不该用。</p>
+
+<h3>会不会被封号</h3>
+<p>说实话：<strong>这是非官方用法，有风险</strong>。频率低风险小，但没法向你保证。默认参数（8 秒一条、一次最多 10 条）是保守值，不建议调高。</p>
+
+<h2>九、一句话总结</h2>
+
+<ol>
+  <li><code>login</code> 扫一次码</li>
+  <li><code>feed</code> 看一眼</li>
+  <li><code>auto --dry-run</code> 预演一下</li>
+  <li><code>on</code> + <code>service install</code> 开起来</li>
+  <li>想停就 <code>pause</code> 或 <code>off</code></li>
+</ol>
+
+<p class="muted" style="margin-top:26px">
+本工具与腾讯公司无关，使用非官方途径操作 QQ 空间，请自行评估风险。页面改版可能导致失效，届时用 <code>explore</code> 命令查看当前页面结构。
+</p>
+
+</body>
+</html>

@@ -1,0 +1,30 @@
+{
+  "name": "qzone-skill",
+  "version": "1.0.0",
+  "description": "让 AI agent 帮你刷 QQ 空间：读好友动态、按规则点赞，全程无窗口浏览器",
+  "type": "module",
+  "bin": {
+    "qzone": "scripts/qzone.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "login": "node scripts/qzone.mjs login",
+    "status": "node scripts/qzone.mjs status",
+    "feed": "node scripts/qzone.mjs feed",
+    "auto": "node scripts/qzone.mjs auto",
+    "service": "node scripts/service.mjs status",
+    "test": "node test/run.mjs"
+  },
+  "keywords": [
+    "qzone",
+    "qq-zone",
+    "agent",
+    "mcp",
+    "automation",
+    "headless"
+  ],
+  "license": "MIT",
+  "private": false
+}
