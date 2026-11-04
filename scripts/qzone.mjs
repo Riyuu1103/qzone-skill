@@ -55,6 +55,7 @@ const HELP = `QQ 空间工具
   node scripts/qzone.mjs digest           摘要（按你赞过谁排序，最省 token）
   node scripts/qzone.mjs digest --images  摘要并把首图下载到本地
   node scripts/qzone.mjs learn            从你赞过的动态里学习口味
+  node scripts/qzone.mjs friends          抓好友亲密度排行（用于排序）
   node scripts/qzone.mjs clean            清理下载的旧图片
   node scripts/qzone.mjs bench            测各输出格式的 token 占用
   node scripts/qzone.mjs like <动态id>     给一条动态点赞
@@ -161,6 +162,7 @@ async function main() {
     case 'digest':
     case 'learn':
     case 'bench':
+    case 'friends':
     case 'clean': {
       // 这几个要开浏览器，延迟加载，保证 help / config 这类命令秒回
       const mod = await import('./lib/actions.mjs');

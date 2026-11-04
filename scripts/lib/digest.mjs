@@ -59,7 +59,15 @@ export function typeLabel(t) {
 
 export function loadPrefs() {
   const f = prefsFile();
-  const empty = { version: 2, authors: {}, types: {}, globalLiked: 0, globalSeen: 0, updatedAt: null };
+  const empty = {
+    version: 2,
+    authors: {},
+    types: {},
+    intimacy: {},
+    globalLiked: 0,
+    globalSeen: 0,
+    updatedAt: null,
+  };
   if (!existsSync(f)) return empty;
   try {
     const p = JSON.parse(readFileSync(f, 'utf8'));
@@ -69,6 +77,24 @@ export function loadPrefs() {
   } catch {
     return empty;
   }
+}
+
+/**
+ * 存入好友亲密度（0~100）。来源是空间「好友」页的排行榜。
+ * 这是**敏感数据**（谁和你最亲近），只落本地 prefs.json，不进仓库。
+ */
+export function saveIntimacy(list) {
+  const prefs = loadPrefs();
+  prefs.intimacy ||= {};
+  let n = 0;
+  for (const it of list) {
+    if (!it.name || !it.score) continue;
+    prefs.intimacy[it.name] = it.score;
+    n++;
+  }
+  prefs.intimacyAt = new Date().toISOString();
+  savePrefs(prefs);
+  return { saved: n, names: Object.keys(prefs.intimacy).length };
 }
 
 export function savePrefs(p) {
@@ -125,17 +151,20 @@ function rate(stat, prefs, alpha = 2) {
 }
 
 /**
- * 打分。分三块：作者偏好率、类型偏好率、内容本身特征。
- * 都用比例而非次数，所以「发得多但你不爱看」的人不会排到前面。
+ * 打分。分四块：亲密度、作者偏好率、类型偏好率、内容本身特征。
+ * 全部用比例/归一化值，所以「发得多但你不爱看」的人不会排到前面。
  */
 export function scoreItem(item, prefs) {
   const type = classify(item);
   const aRate = rate(prefs.authors?.[item.name], prefs);
   const tRate = rate(prefs.types?.[type], prefs);
+  // 亲密度 0~100 → 0~2 分。这是「你在意谁」的直接信号，比行为统计更稳。
+  const inti = Number(prefs.intimacy?.[item.name] || 0) / 100;
 
   let s = 1;
-  s += aRate * 2.5; // 作者偏好：0~1 → 0~2.5
-  s += tRate * 2.5; // 类型偏好：0~1 → 0~2.5
+  s += inti * 2;
+  s += aRate * 2.5;
+  s += tRate * 2.5;
   if (item.imgCount > 0) s += 0.3 + Math.min(0.4, item.imgCount * 0.1);
   const len = (item.text || '').length;
   if (len > 80) s += 0.3;

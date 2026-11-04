@@ -1,4 +1,4 @@
-﻿// 需要浏览器的动作：读动态、点赞、自动刷。
+// 需要浏览器的动作：读动态、点赞、自动刷。
 //
 // 实现策略：全部在真实页面里做，而不是自己拼内部接口。
 //   理由：QQ 空间的内部接口带签名参数（g_tk / curkey / unikey），逆向出来的实现
@@ -14,7 +14,7 @@ import { ensureBrowser, closeBrowser } from './browser.mjs';
 import { newPage, goto, evaluate, screenshot } from './cdp.mjs';
 import { loadConfig, loadState, saveState, isPaused, paths } from './store.mjs';
 import { injectSession } from './session.mjs';
-import { learnFrom, buildDigest, cleanImages, imageStorage, classify } from './digest.mjs';
+import { learnFrom, buildDigest, cleanImages, imageStorage, classify, saveIntimacy } from './digest.mjs';
 import { compareFormats } from './bench.mjs';
 
 const FEED_URL = (uin) => `https://user.qzone.qq.com/${uin}`;
@@ -469,6 +469,55 @@ function pickCursorKey(items) {
 }
 
 /**
+ * 抓「好友亲密度」排行。
+ *
+ * 数据在 /myhome/friends/index 的 iframe 里
+ * （`qzonestyle.gtimg.cn/qzone/v8/pages/friends/index.html`），同源，可以直接 contentDocument。
+ * 每条结构：
+ *   li.rank-list-item > .item-index .icon-level（名次）
+ *                     > .info-name（昵称）
+ *                     > .score .count（亲密度 0~100）
+ *
+ * 亲密度是「赞 / 评论 / 访问」累积出的社交强度，比发帖频率稳定，
+ * 拿来当摘要权重比「谁发得多」靠谱得多。
+ */
+export async function fetchFriends({ top = 50 } = {}) {
+  const cfg = loadConfig();
+  return withPage(
+    async ({ cdp, sessionId, uin }) => {
+      await goto(cdp, sessionId, `https://user.qzone.qq.com/${uin}/myhome/friends/index`, 40_000);
+      await sleep(6000);
+
+      return evaluate(
+        cdp,
+        sessionId,
+        `(() => {
+          const f = [...document.querySelectorAll('iframe')].find(x => (x.src || '').includes('pages/friends'));
+          if (!f) return { ok: false, reason: '找不到好友 iframe' };
+          let d;
+          try { d = f.contentDocument; } catch (e) { return { ok: false, reason: '跨域：' + e.message }; }
+          if (!d) return { ok: false, reason: 'iframe 还没加载完' };
+
+          const rows = [...d.querySelectorAll('li.rank-list-item')];
+          const list = rows.map((li) => {
+            const rank = Number((li.querySelector('.item-index .icon-level')?.textContent || '').trim()) || 0;
+            const score = Number((li.querySelector('.score .count')?.textContent || '').trim()) || 0;
+            const name = (li.querySelector('.info-name')?.textContent || '').trim();
+            const link = li.querySelector('.avatar-img')?.getAttribute('link') || '';
+            const href = li.querySelector('.avatar-img')?.getAttribute('href') || '';
+            const m = link.match(/(\\d{5,})/) || href.match(/(\\d{5,})/);
+            return { rank, name, score, uin: m ? m[1] : '' };
+          }).filter((r) => r.name && r.score > 0);
+
+          return { ok: true, count: list.length, list: list.slice(0, ${Number(top)}) };
+        })()`,
+      );
+    },
+    { pageUrl: `https://user.qzone.qq.com/${cfg.account?.uin}/myhome/friends/index` },
+  );
+}
+
+/**
  * 只读增量：从上次读到的位置之后开始。
  *
  * 定位方式：把上次记住的 key 当成锚点，在这次的列表里找到它，
@@ -563,6 +612,13 @@ export async function run(command, flags, io) {
         const newest = pickCursorKey(r.items);
         advanceCursor(newest);
         return io.out({ ...d, read: r.items.length, skippedOld }, flags);
+      }
+
+      case 'friends': {
+        const r = await fetchFriends({ top: Number(flags.top ?? 50) });
+        if (!r.ok) return io.fail(r.reason);
+        const saved = saveIntimacy(r.list);
+        return io.out({ ok: true, count: r.count, saved, list: r.list }, flags);
       }
 
       case 'clean': {
