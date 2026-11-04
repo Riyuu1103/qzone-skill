@@ -74,8 +74,11 @@ const READ_SCRIPT = String.raw`(() => {
     }
     if (!text) text = (el.querySelector('.f-info')?.innerText || '').trim();
 
-    const likeBtn = el.querySelector('[class*="like_btn"], [class*="qz_like"]');
-    const liked = likeBtn ? /(_on|liked)/.test(likeBtn.className || '') : false;
+    const likeBtn = el.querySelector('[class*="like_btn"]');
+    // 好友动态的已赞标记是 class 里的 item-on（不是 _on），说说页则是文案变成「取消赞」
+    const liked = likeBtn
+      ? /item-on|_on|liked/.test(likeBtn.className || '') || (likeBtn.textContent || '').includes('取消赞')
+      : false;
     const hasImage = [...el.querySelectorAll('img')].some(
       (img) => /\/photo\/|qpic\.cn|photo\.store/.test(img.src || ''),
     );
@@ -113,45 +116,98 @@ export async function readFeed({ scrolls = 2 } = {}) {
 }
 
 /**
+ * 用真实鼠标事件点一个元素。
+ *
+ * 为什么不能 element.click()：QQ 空间的赞按钮不响应合成 click 事件
+ * （实测：点了以后文案/class 一点没变）。必须走 CDP 的 Input.dispatchMouseEvent，
+ * 那是真正的浏览器输入管线。
+ */
+async function realClick(cdp, sessionId, rectExpression) {
+  const box = await evaluate(cdp, sessionId, rectExpression);
+  if (!box || !Number.isFinite(box.x)) return { ok: false, reason: '拿不到元素坐标' };
+
+  const { x, y } = box;
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'none', clickCount: 0 }, sessionId);
+  await sleep(120);
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 }, sessionId);
+  await sleep(90);
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 }, sessionId);
+  return { ok: true, x, y };
+}
+
+/** 读一条动态当前的赞状态（优先看可见按钮的 class / 文案） */
+function likeStateExpr(key) {
+  return `(() => {
+    const keyEl = [...document.querySelectorAll('[data-key]')].find(n => n.getAttribute('data-key') === ${JSON.stringify(key)});
+    if (!keyEl) return null;
+    const card = keyEl.closest('li.f-single') || keyEl.parentElement || keyEl;
+    const btns = [...card.querySelectorAll('[class*="like_btn"]')];
+    const btn = btns.find(b => b.offsetParent !== null) || btns[0];
+    if (!btn) return { found: false };
+    const cls = (btn.className || '').toString();
+    const text = (btn.textContent || '').trim();
+    return {
+      found: true,
+      cls,
+      text,
+      liked: /item-on|_on|liked/.test(cls) || text.includes('取消赞'),
+      rect: (() => {
+        const r = btn.getBoundingClientRect();
+        return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), w: r.width, h: r.height };
+      })(),
+    };
+  })()`;
+}
+
+/**
  * 给若干条动态点赞。返回每条的结果，不会因为一条失败就全中断。
- * @param {string[]} keys 动态 id
+ * @param {string[]} keys 动态 id（卡片上的 data-key）
  * @param {{intervalMs?:number}} opts 两条之间的间隔，默认 8 秒（太快容易触发风控）
- * 返回 { results: [{key, ok, before, after, reason}] }
  */
 export async function likeByKeys(keys, { intervalMs } = {}) {
   if (!keys?.length) return { results: [] };
   const gap = Math.max(1000, intervalMs ?? 8_000);
+
   return withPage(async ({ cdp, sessionId }) => {
     const results = [];
     for (let i = 0; i < keys.length; i++) {
       const key = keys[i];
       if (i > 0) await sleep(gap);
-      const r = await evaluate(
+
+      const before = await evaluate(cdp, sessionId, likeStateExpr(key)).catch(() => null);
+      if (!before || !before.found) {
+        results.push({ key, ok: false, reason: 'DOM 里找不到这条动态的赞按钮（可能需要先滚动加载）' });
+        continue;
+      }
+      if (before.liked) {
+        results.push({ key, ok: true, skipped: true, reason: '已经赞过了', before: before.cls });
+        continue;
+      }
+      if (!before.rect || before.rect.w < 5) {
+        results.push({ key, ok: false, reason: '赞按钮不可见（可能被折叠）' });
+        continue;
+      }
+
+      const clicked = await realClick(
         cdp,
         sessionId,
-        `(async () => {
-          const KEY = ${JSON.stringify(key)};
-          // 动态 id 在内层 .f-item[data-key] 上，赞按钮在更外层的 li 里，要往上找
-          const keyEl = [...document.querySelectorAll('[data-key]')]
-            .find(n => n.getAttribute('data-key') === KEY);
-          if (!keyEl) return { ok: false, reason: 'DOM 里找不到这条动态（可能需要先滚动加载）' };
-          const card = keyEl.closest('li.f-single') || keyEl.parentElement || keyEl;
-          const btn = card.querySelector('[class*="like_btn"], [class*="qz_like"]');
-          if (!btn) return { ok: false, reason: '找不到赞按钮' };
-          const before = btn.className || '';
-          if (/_on|liked/.test(before)) return { ok: true, skipped: true, reason: '已经赞过了', before };
-          btn.click();
-          await new Promise(r => setTimeout(r, 1500));
-          const after = btn.className || '';
-          return {
-            ok: /_on|liked/.test(after),
-            before,
-            after,
-            reason: /_on|liked/.test(after) ? 'ok' : '点了但状态没变（可能被风控或按钮结构变了）',
-          };
-        })()`,
-      ).catch((e) => ({ ok: false, reason: e.message }));
-      results.push({ key, ...r });
+        `(() => { const s = ${likeStateExpr(key)}; return s && s.rect ? s.rect : null; })()`,
+      );
+      if (!clicked.ok) {
+        results.push({ key, ok: false, reason: clicked.reason });
+        continue;
+      }
+
+      await sleep(1500);
+      const after = await evaluate(cdp, sessionId, likeStateExpr(key)).catch(() => null);
+      const ok = Boolean(after?.liked);
+      results.push({
+        key,
+        ok,
+        before: before.cls,
+        after: after?.cls,
+        reason: ok ? 'ok' : '点了但状态没变（可能被风控或按钮结构变了）',
+      });
     }
     return { results };
   });
@@ -264,8 +320,8 @@ export async function runAuto({ dryRun = false, scrolls = 2 } = {}) {
   };
 }
 
-/** 探测：把页面结构 dump 出来，用于写/修选择器 */
-export async function explore() {
+/** 探测：把页面结构 dump 出来，用于写/修选择器。pageUrl 可指定别的页面（比如自己的说说页） */
+export async function explore({ pageUrl } = {}) {
   return withPage(async ({ cdp, sessionId, uin }) => {
     for (let i = 0; i < 2; i++) {
       await evaluate(cdp, sessionId, 'window.scrollTo(0, document.body.scrollHeight); true').catch(() => {});
@@ -334,7 +390,7 @@ export async function run(command, flags, io) {
       case 'watch':
         return watch({ intervalMinutes: flags.interval ? Number(flags.interval) : undefined });
       case 'explore': {
-        const r = await explore();
+        const r = await explore({ pageUrl: flags.url });
         return io.out({ ok: true, ...r }, flags);
       }
       default:

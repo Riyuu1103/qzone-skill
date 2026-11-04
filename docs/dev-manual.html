@@ -299,13 +299,43 @@ Page.enable / Runtime.enable / Network.enable</code></pre>
 
 <p>点击后固定等 1500ms 再读 class。实测这个延时足够覆盖网络往返；调小会出现「本来成功了却读成失败」。</p>
 
-<p><strong>按钮怎么定位</strong>：<code>data-key</code> 在 <code>.f-item</code> 上，而赞按钮在更外层的 <code>.f-single-foot</code> 里。所以不能直接在被点元素上 <code>querySelector</code>，要先 <code>closest('li.f-single')</code> 往上走一层再找按钮：</p>
+<p><strong>这里有个能卡一整天的坑：<code>element.click()</code> 不生效。</strong></p>
 
-<pre><code>const keyEl = [...document.querySelectorAll('[data-key]')].find(n =&gt; n.getAttribute('data-key') === KEY);
-const card  = keyEl.closest('li.f-single') || keyEl;
-const btn   = card.querySelector('[class*="like_btn"]');</code></pre>
+<p>第一版用的是脚本里 <code>btn.click()</code>。点了以后 class、文案<b>一点没变</b>，也不报错。看起来像「按钮结构改了」或者「被风控」，其实都不是 —— QQ 空间的赞按钮不响应脚本合成的 click 事件。</p>
 
-<h3>6.5 限速</h3>
+<p>必须走 CDP 的真实输入管线：</p>
+
+<pre><code>Input.dispatchMouseEvent { type: 'mouseMoved',    x, y }
+Input.dispatchMouseEvent { type: 'mousePressed',  x, y, button: 'left', clickCount: 1 }
+Input.dispatchMouseEvent { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 }</code></pre>
+
+<p>坐标用 <code>getBoundingClientRect()</code> 取元素中心点（<b>如果元素在 iframe 里，要加上 iframe 的位置</b>）。</p>
+
+<h3>6.5 状态判据：class 还是文案？</h3>
+
+<p>两个页面的「已赞」标记不一样，只写一种就会误判：</p>
+
+<table>
+  <tr><th style="width:150px">页面</th><th>已赞的判据</th></tr>
+  <tr><td>好友动态（主页）</td><td>按钮 class 里带 <code>item-on</code>（未赞时是 <code>item qz_like_btn_v3</code>）</td></tr>
+  <tr><td>我的说说（<code>/&lt;uin&gt;/311</code>）</td><td>可见的那个 <code>&lt;a&gt;</code> 文案变成「取消赞」</td></tr>
+</table>
+
+<div class="bad">
+<strong>我踩过的两个误判</strong>：① 以为已赞标记是 <code>_on</code>，实际是 <code>item-on</code>，导致所有已赞的都判成未赞；② 说说页里一个赞按钮有 <b>4 个 <code>&lt;a&gt;</code></b>（第一个空占位、第二个「赞(34)」模板、第三个可见的当前按钮、第四个隐藏），点错那个 <code>display:none</code> 的元素等于什么都没做。
+</div>
+
+<h3>6.6 「我的说说」在 iframe 里</h3>
+
+<p><code>https://user.qzone.qq.com/&lt;uin&gt;/311</code> 的说说列表不是主文档渲染的，而在一个同源 iframe 里：</p>
+
+<pre><code>https://user.qzone.qq.com/proxy/domain/qzonestyle.gtimg.cn/qzone/app/mood_v6/html/index.html#mood&amp;uin=...</code></pre>
+
+<p>好在<b>同源</b>，所以可以直接 <code>iframe.contentDocument</code> 拿文档，不需要 CDP 的 executionContext 切换。卡片选择器也不同：这里是 <code>li.feed</code>，赞按钮的容器 id 直接带动态 id（<code>like_btn_&lt;key&gt;</code>）。</p>
+
+<p>把这个 iframe 的 URL 单独当顶层页面打开是没用的 —— 能进页面，但列表不渲染（它依赖父页面上下文）。</p>
+
+<h3>6.7 限速</h3>
 
 <p>两条之间 <code>auto.like.minIntervalSec</code>（默认 8 秒），代码里再夹一个 1000ms 下限兜底。这个值不是随便定的：短时间内连续点赞是 QQ 空间风控最敏感的行为。</p>
 
