@@ -89,6 +89,10 @@ const READ_SCRIPT = String.raw`(() => {
       .map((img) => img.src || '')
       .filter((s) => /qpic\.cn|photo\.store/.test(s));
 
+    // 绝对时间戳（秒），做「补遗」的时间区间过滤要用
+    const tsRaw = el.querySelector('[data-abstime]')?.getAttribute('data-abstime') || '';
+    const ts = Number(tsRaw) ? Number(tsRaw) * 1000 : 0;
+
     out.push({
       key,
       tid,
@@ -96,6 +100,7 @@ const READ_SCRIPT = String.raw`(() => {
       name,
       text: text.slice(0, 500),
       time: timeText,
+      ts,
       liked,
       hasImage: imgs.length > 0,
       imgCount: imgs.length,
@@ -604,16 +609,43 @@ export async function run(command, flags, io) {
             items = r.items.slice(0, idx);
           }
         }
+        const catchup = Boolean(flags.catchup);
+        const hours = Number(flags.hours ?? 0);
+        const sinceMs = hours > 0 ? Date.now() - hours * 3600_000 : undefined;
+
         const d = await buildDigest(items, {
-          top: Number(flags.top ?? 8),
+          top: Number(flags.top ?? (catchup ? 15 : 8)),
           withImages: Boolean(flags.images),
           onlyTypes: flags.types ? String(flags.types).split(',').map((s) => s.trim()) : undefined,
           cleanup: flags['no-cleanup'] ? false : undefined,
           negative: flags.negative || cfg.content?.negative || 'demote',
+          catchup,
+          excludeKeys: new Set(Object.keys(state.shown || {})),
+          sinceMs,
         });
+
+        // 把这次真正给出去的记下来，下次补遗才知道哪些已经补过
+        if (!flags['dry-run']) {
+          const st = loadState();
+          st.shown ||= {};
+          const now = Date.now();
+          for (const it of d.items) {
+            // items 里只有短 key，这里按前缀匹配回完整 id
+            const full = r.items.find((x) => x.key && x.key.startsWith(it.k))?.key;
+            if (full) st.shown[full] = now;
+          }
+          // 只留最近 800 条，别让状态文件无限长
+          const keys = Object.keys(st.shown);
+          if (keys.length > 800) {
+            keys.sort((x, y) => st.shown[x] - st.shown[y]);
+            for (const k of keys.slice(0, keys.length - 800)) delete st.shown[k];
+          }
+          saveState(st);
+        }
+
         const newest = pickCursorKey(r.items);
         advanceCursor(newest);
-        return io.out({ ...d, read: r.items.length, skippedOld }, flags);
+        return io.out({ ...d, read: r.items.length, skippedOld, hours: hours || undefined }, flags);
       }
 
       case 'friends': {

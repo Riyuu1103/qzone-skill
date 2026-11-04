@@ -166,7 +166,7 @@ export function coerce(raw, current) {
 /** 运行状态（去重 / 水位）。文件坏了就当空的重来，不让它挡住主流程 */
 export function loadState() {
   const { stateFile } = paths();
-  const empty = { liked: {}, lastRunAt: null, lastSeenTs: 0, lastCursor: '' };
+  const empty = { liked: {}, shown: {}, lastRunAt: null, lastSeenTs: 0, lastCursor: '' };
   if (!existsSync(stateFile)) return empty;
   try {
     return { ...empty, ...JSON.parse(readFileSync(stateFile, 'utf8')) };

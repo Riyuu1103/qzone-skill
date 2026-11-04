@@ -263,7 +263,7 @@ function rate(stat, prefs, alpha = 2) {
  * @param {{negative?: 'include'|'demote'|'exclude'}} opts
  *   include = 不过滤也不降权；demote = 降权排后；exclude = 直接排除
  */
-export function scoreItem(item, prefs, { negative = 'demote' } = {}) {
+export function scoreItem(item, prefs, { negative = 'demote', shownKeys } = {}) {
   const type = classify(item);
   const aRate = rate(prefs.authors?.[item.name], prefs);
   const tRate = rate(prefs.types?.[type], prefs);
@@ -280,6 +280,8 @@ export function scoreItem(item, prefs, { negative = 'demote' } = {}) {
   else if (len > 30) s += 0.15;
   // 电脑端看不到内容的，降权但仍保留 —— 免得用户以为好友什么都没发
   if (isHidden(item)) s -= 0.8;
+  // 已经推送过的降权：默认摘要就会优先给「还没给你看过的」，自然补足遗漏
+  if (shownKeys && shownKeys.has(item.key)) s -= 0.9;
   // 负面内容按用户选择处理
   const neg = negativity(item);
   if (negative === 'demote' && neg.level > 0) s -= neg.level * 0.9;
@@ -402,11 +404,22 @@ async function downloadImage(url, key) {
  * @param {object} opts.onlyTypes 只保留这些类型（数组）
  * @param {object} opts.cleanup 图片清理参数（false 关闭）
  */
-export async function buildDigest(items, { top = 8, withImages = false, textLen = 80, onlyTypes, cleanup, negative = 'demote' } = {}) {
+export async function buildDigest(items, { top = 8, withImages = false, textLen = 80, onlyTypes, cleanup, negative = 'demote', excludeKeys, sinceMs, untilMs, catchup = false } = {}) {
   const prefs = loadPrefs();
 
   let pool = items.filter((it) => it.key);
   if (onlyTypes?.length) pool = pool.filter((it) => onlyTypes.includes(classify(it)));
+
+  // 时间区间（补遗用）
+  if (sinceMs || untilMs) {
+    pool = pool.filter((it) => (!sinceMs || !it.ts || it.ts >= sinceMs) && (!untilMs || !it.ts || it.ts <= untilMs));
+  }
+
+  // 补遗：只看「还没推送过」的
+  const excluded = excludeKeys instanceof Set ? excludeKeys : new Set(excludeKeys || []);
+  const beforeUnseen = pool.length;
+  if (catchup) pool = pool.filter((it) => !excluded.has(it.key));
+  const alreadyShown = beforeUnseen - pool.length;
 
   // 负面内容：exclude 直接拿走；demote/include 留在池子里，靠打分区分
   const negAll = pool.filter((it) => negativity(it).level > 0);
@@ -414,7 +427,7 @@ export async function buildDigest(items, { top = 8, withImages = false, textLen 
 
   const scored = pool
     .map((it) => {
-      const { score, type, neg } = scoreItem(it, prefs, { negative });
+      const { score, type, neg } = scoreItem(it, prefs, { negative, shownKeys: excluded });
       return { it, score, type, neg };
     })
     .sort((a, b) => b.score - a.score);
@@ -489,6 +502,16 @@ export async function buildDigest(items, { top = 8, withImages = false, textLen 
           note: '这些是电脑端加载不出内容的动态（视频/直播等），不是空内容。已在摘要里标 H 并降权，自动点赞会跳过。',
         }
       : null,
+    catchup: catchup
+      ? {
+          mode: 'catchup',
+          skippedShown: alreadyShown,
+          found: pool.length,
+          note: alreadyShown
+            ? `补遗：这次只看没推送过的，跳过 ${alreadyShown} 条已给过你的`
+            : '补遗：没有已推送记录，按全量处理',
+        }
+      : undefined,
     // 提示调用方：还有多少条没给，要不要多给一些
     more: remain > 0 ? { remain, hint: `还有 ${remain} 条没显示，加 --top ${Math.min(out.length + remain, out.length + 8)} 可以看更多` } : null,
     typeStats: Object.fromEntries(

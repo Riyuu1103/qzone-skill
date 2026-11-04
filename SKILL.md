@@ -108,6 +108,20 @@ node scripts/qzone.mjs digest --types art,life     # 只看画画和生活记录
 node scripts/qzone.mjs digest --images             # 附图片（自动清理旧图）
 ```
 
+### 补遗：把漏掉的补给你
+
+用户刷空间时不一定看全，所以默认摘要**会优先给「还没推送过」的内容**（推送过的降权 0.9）。如果用户明确说「我好像漏了什么」「把刚才那段时间的补给我」：
+
+```bash
+node scripts/qzone.mjs digest --catchup              # 只给没推送过的
+node scripts/qzone.mjs digest --catchup --hours 8    # 只管最近 8 小时
+node scripts/qzone.mjs digest --catchup --top 20     # 补得多一点
+```
+
+`--catchup` 会读 `state.json` 里的 `shown`（推送记录）把已给过的排除掉，输出里的 `catchup.skippedShown` 告诉你跳过了几条。
+
+**重要**：我们**不知道用户在 QQ 里自己刷了什么** —— 平台没有「已读」记录。所以「遗漏」只能定义为「我们还没推送过的」。跟用户解释时要说明这一点，别说成「你没看过的」。
+
 `--types` 可选值：`recruit` 扩列条 · `art` 画画 · `study` 学习技术 · `music` 音乐 · `mood` 情绪吐槽 · `meme` 梗图段子 · `life` 生活记录 · `image` 多图 · `longtext` 长文 · `other` 其他。
 
 **第一次用之前先跑一次 `learn`，再跑一次 `friends`**，否则没有口味数据，排序等于按「有没有图 + 文字长短」猜。

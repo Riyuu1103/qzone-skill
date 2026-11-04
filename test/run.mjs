@@ -235,6 +235,21 @@ test('normal 内容不受 negative 设置影响', () => {
   );
 });
 
+console.log('\n[11] 补遗（没看到的补给你）');
+test('推送过的内容会降权', () => {
+  const item = { key: 'k1', name: 'x', text: '普通内容', imgCount: 0 };
+  const fresh = scoreItem(item, {}, { shownKeys: new Set() }).score;
+  const seen = scoreItem(item, {}, { shownKeys: new Set(['k1']) }).score;
+  assert.ok(seen < fresh, '推送过的应更低');
+  assert.ok(seen > 0, '但不该归零');
+});
+test('没推送过的不受影响', () => {
+  const item = { key: 'k2', name: 'x', text: '普通内容', imgCount: 0 };
+  const a = scoreItem(item, {}, { shownKeys: new Set(['k1']) }).score;
+  const b = scoreItem(item, {}, { shownKeys: new Set() }).score;
+  assert.equal(a, b);
+});
+
 test('看不到内容的降权但不会消失', () => {
   const normal = { name: 'x', text: '普通内容', imgCount: 0 };
   const hidden = { name: 'x', text: '功能内测中，内容暂不支持查看', imgCount: 0 };
