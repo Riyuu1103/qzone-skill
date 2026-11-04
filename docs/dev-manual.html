@@ -339,13 +339,60 @@ Input.dispatchMouseEvent { type: 'mouseReleased', x, y, button: 'left', clickCou
 
 <p>两条之间 <code>auto.like.minIntervalSec</code>（默认 8 秒），代码里再夹一个 1000ms 下限兜底。这个值不是随便定的：短时间内连续点赞是 QQ 空间风控最敏感的行为。</p>
 
-<h2 class="pb">七、配置与状态（store.mjs）</h2>
+<h2 class="pb">七、摘要与 token 预算</h2>
 
-<h3>7.1 配置合并</h3>
+<p>这个工具最贵的不是网络请求，是<b>输出塞进模型上下文</b>。一次 <code>feed</code> 全量输出实测 3,526 token，而真正有用的信息只要几百。</p>
+
+<table>
+  <tr><th style="width:230px">格式</th><th style="width:90px">字节</th><th style="width:100px">token</th><th>相对</th></tr>
+  <tr><td><code>feed</code> 全量（含图片 URL）</td><td>12,506</td><td>3,526</td><td>100%</td></tr>
+  <tr><td><code>feed</code> 精简（不带图片 URL）</td><td>6,772</td><td>1,933</td><td>55%</td></tr>
+  <tr><td><code>feed</code> 极简（短键）</td><td>2,033</td><td>616</td><td>17%</td></tr>
+  <tr><td><b><code>digest</code> top 8</b></td><td><b>1,108</b></td><td><b>336</b></td><td><b>10%</b></td></tr>
+</table>
+
+<p>省下来的三块：</p>
+
+<ol>
+  <li><b>图片 URL</b>。a1.qpic.cn 的 psc 链接单条几百字符，一条动态 9 张图就上千。digest 只给「几张图」，需要图时下载后给<b>本地短路径</b>。</li>
+  <li><b>字段名</b>。<code>time</code>/<code>name</code>/<code>text</code>/<code>imgCount</code> 换成 <code>t</code>/<code>a</code>/<code>x</code>/<code>n</code>，23 条能省上千字符。</li>
+  <li><b>条数</b>。只给排序后的前 N 条，而不是全部。</li>
+</ol>
+
+<h3>7.1 排序靠什么</h3>
+
+<p>唯一的偏好信号是<b>「你赞过谁」</b> —— 这是用户唯一主动表达过的东西，不需要额外打标签，也不会因为我们的猜测而失真。</p>
+
+<pre><code>score = 1
+      + min(3, log2(该作者的点赞次数 + 1))   // 对数衰减，防刷屏的人顶死
+      + (有图 ? 0.5 + min(0.5, 图数×0.1) : 0)
+      + (正文 &gt;80 字 ? 0.4 : 正文 &gt;30 字 ? 0.2 : 0)</code></pre>
+
+<p>对数衰减是有意的：某个人连着发 20 条，权重不该是别人的 20 倍。</p>
+
+<h3>7.2 增量游标</h3>
+
+<p>游标记在 <code>state.json</code> 的 <code>lastCursor</code>，值是最新那条动态的 <code>data-key</code>。</p>
+
+<div class="bad">
+<strong>踩过</strong>：游标一度存成 <code>403_2_123456789</code> —— 那是页面顶部某个位置标记的 <code>data-key</code>，不是动态 id。真动态 id 是 24 位十六进制。现在加了 <code>isFeedKey()</code> 校验，并且有单测守着。
+</div>
+
+<p>定位方式：把游标当成锚点，在这次的列表里找它，它之前的就是新增的。找不到说明那条已经被挤出列表（间隔太久），这轮返回全部并重建游标。</p>
+
+<h3>7.3 图片下载</h3>
+
+<p>qpic 经常返回 <b>webp</b> 但 URL 后缀写 jpg。所以下载后按<b>文件头</b>判断真实格式再定扩展名，否则看图工具会报「扩展名与实际格式不符」。</p>
+
+<p>下载失败（超时 / 小于 512 字节 / URL 过期）就不给 <code>p</code> 字段，不影响主流程。</p>
+
+<h2 class="pb">八、配置与状态（store.mjs）</h2>
+
+<h3>8.1 配置合并</h3>
 
 <p><code>loadConfig()</code> 用<span>「默认值 ← 用户文件」</span>的深合并，数组整体替换而不是拼接。好处是新版本加了配置项，老用户的配置文件缺字段也不会崩。</p>
 
-<h3>7.2 点号读写与类型</h3>
+<h3>8.2 点号读写与类型</h3>
 
 <p><code>setPath(obj, 'auto.like.maxPerRun', '5')</code> 会按<strong>原值的类型</strong>转换：</p>
 
@@ -358,13 +405,13 @@ Input.dispatchMouseEvent { type: 'mouseReleased', x, y, button: 'left', clickCou
 
 <p>为什么按原值而不是按输入猜：命令行只给字符串，按输入猜的话 <code>"123"</code> 到底是字符串还是数字没法判断。</p>
 
-<h3>7.3 状态文件</h3>
+<h3>8.3 状态文件</h3>
 
 <p><code>state.json</code> 记 <code>liked</code>（key → {at, name, text}），最多 500 条，超了按时间淘汰最老的。文件坏了就当空的——去重丢一次比整个工具起不来强。</p>
 
-<h2>八、定时任务（service.mjs）</h2>
+<h2>九、定时任务（service.mjs）</h2>
 
-<h3>8.1 Windows 上的隐藏执行</h3>
+<h3>9.1 Windows 上的隐藏执行</h3>
 
 <div class="flow">schtasks  →  wscript.exe "run-auto.vbs"  →  node qzone.mjs auto --json  &gt;&gt; logs/auto.log</div>
 
@@ -374,13 +421,13 @@ Input.dispatchMouseEvent { type: 'mouseReleased', x, y, button: 'left', clickCou
 <strong><code>.vbs</code> 必须纯 ASCII。</strong><code>wscript</code> 按 ANSI/GBK 读文件，UTF-8 中文注释的尾字节会吞掉行尾 CR，把下一行代码并进注释，表现为莫名其妙的 <code>缺少对象: 'shell'</code>。<code>writeLauncher()</code> 里用 <code>'ascii'</code> 编码写盘，就是为了这个。
 </div>
 
-<h3>8.2 其他平台</h3>
+<h3>9.2 其他平台</h3>
 
 <p>不自动改 crontab。别人的 crontab 是别人的东西，越界了。只返回一行建议让用户自己决定。</p>
 
-<h2>九、扩展</h2>
+<h2>十、扩展</h2>
 
-<h3>9.1 加一个新动作</h3>
+<h3>10.1 加一个新动作</h3>
 
 <ol>
   <li>在 <code>actions.mjs</code> 里写一个函数，内部用 <code>withPage()</code> 包住（它负责开页、等加载、关浏览器）</li>
@@ -390,13 +437,13 @@ Input.dispatchMouseEvent { type: 'mouseReleased', x, y, button: 'left', clickCou
   <li>更新 <code>SKILL.md</code> 和 <code>references/commands.md</code></li>
 </ol>
 
-<h3>9.2 改选择器</h3>
+<h3>10.2 改选择器</h3>
 
 <p>两处：<code>READ_SCRIPT</code> 顶部的 <code>CARD_SELECTORS</code>，和 <code>likeByKeys()</code> 里的 <code>[class*="like_btn"]</code>。</p>
 
 <p>别猜。先跑 <code>explore</code>，看 <code>counts</code> 和 <code>firstCard</code> 的真实 HTML。</p>
 
-<h3>9.3 不要加的东西</h3>
+<h3>10.3 不要加的东西</h3>
 
 <ul>
   <li><strong>自动发说说 / 评论</strong>：破坏性动作，一错就是社交事故</li>
@@ -404,7 +451,7 @@ Input.dispatchMouseEvent { type: 'mouseReleased', x, y, button: 'left', clickCou
   <li><strong>读 cookie 导出</strong>：等于凭空造一个凭证泄露面</li>
 </ul>
 
-<h2 class="pb">十、测试</h2>
+<h2 class="pb">十一、测试</h2>
 
 <pre><code>node test/run.mjs</code></pre>
 
@@ -416,7 +463,7 @@ Input.dispatchMouseEvent { type: 'mouseReleased', x, y, button: 'left', clickCou
 <strong>没被覆盖的部分</strong>：CDP 通信、DOM 抓取、点赞 —— 这些需要真实登录态，只能手动验证。改这两块之后至少跑一次 <code>feed</code> + <code>auto --dry-run</code>。
 </div>
 
-<h2>十一、已知限制</h2>
+<h2>十二、已知限制</h2>
 
 <table>
   <tr><th style="width:200px">限制</th><th>原因</th><th>可能的解法</th></tr>
@@ -428,7 +475,7 @@ Input.dispatchMouseEvent { type: 'mouseReleased', x, y, button: 'left', clickCou
   <tr><td>headless 可能被识别</td><td>UA 能改，但 JS 指纹改不干净</td><td>目前实测可用；真被封了把 <code>browser.headless</code> 设 0</td></tr>
 </table>
 
-<h2>十二、排错顺序</h2>
+<h2>十三、排错顺序</h2>
 
 <p>遇到问题按这个顺序，每一步排除一类原因：</p>
 

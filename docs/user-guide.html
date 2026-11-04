@@ -140,7 +140,40 @@
   <tr><td><code>hasImage</code></td><td>带不带图</td></tr>
 </table>
 
-<p>想多看几条就把 <code>--scrolls</code> 调大，比如 <code>feed --scrolls 4</code>。每多滚一屏多等 1.5 秒。</p>
+<p>想多看几条就把 <code>--limit</code> 调大，比如 <code>feed --limit 25</code>。每多读一点就要多滚屏，读满大约 23 条、1 分钟。</p>
+
+<h3>更省事的用法：摘要</h3>
+
+<p><code>feed</code> 会把所有字段都吐出来，信息全但啰嗦。日常更推荐用 <strong>摘要</strong>：</p>
+
+<pre><code>node scripts/qzone.mjs learn            # 先学一次你的口味
+node scripts/qzone.mjs digest --images  # 看摘要，顺带把配图下到本地
+</code></pre>
+
+<p><code>digest</code> 做的事：</p>
+<ol>
+  <li>读一遍好友动态</li>
+  <li>按<strong>你赞过谁</strong>给每条打分 —— 你常赞的人，内容排前面</li>
+  <li>只给你最值得看的 8 条（可以 <code>--top 15</code> 改）</li>
+  <li>带图的会把第一张图下载下来，直接能看</li>
+</ol>
+
+<div class="note">
+<strong>为什么要有这个</strong>：完整数据一次三千多 token，摘要只要三百多 —— 省 90%。而且顺序是按你自己的口味排的，不是按时间堆。
+</div>
+
+<p>只想看上次之后的新内容，加一个 <code>--since</code>：</p>
+<pre><code>node scripts/qzone.mjs digest --since</code></pre>
+
+<h3>口味是怎么学的</h3>
+
+<p>只从一件事上学：<strong>你赞过谁</strong>。你赞得越多的人，TA 的内容在摘要里排得越前。</p>
+
+<p>这不需要你打标签、设偏好，也不靠猜测。想更新口味就再跑一次 <code>learn</code>，比如每周一次。</p>
+
+<div class="warn">
+「很多人赞过」和「你赞过」是两件事。摘要排序看的是<strong>你的</strong>赞，不是总赞数 —— 所以刚用的时候排序可能不准，用几天、赞几次之后就准了。
+</div>
 
 <h2>五、第三步：点赞</h2>
 
@@ -200,6 +233,9 @@ node scripts/qzone.mjs service install --interval 30
   <tr><td><code>node scripts/qzone.mjs login</code></td><td>扫码登录</td></tr>
   <tr><td><code>node scripts/qzone.mjs status</code></td><td>看登录了没、开关开没开</td></tr>
   <tr><td><code>node scripts/qzone.mjs feed</code></td><td>读动态</td></tr>
+  <tr><td><code>node scripts/qzone.mjs digest</code></td><td>看摘要（推荐，最省）</td></tr>
+  <tr><td><code>node scripts/qzone.mjs digest --images</code></td><td>摘要 + 看配图</td></tr>
+  <tr><td><code>node scripts/qzone.mjs learn</code></td><td>学一次口味</td></tr>
   <tr><td><code>node scripts/qzone.mjs like &lt;编号&gt;</code></td><td>给指定动态点赞</td></tr>
   <tr><td><code>node scripts/qzone.mjs auto --dry-run</code></td><td>预演：只说会赞什么，不动手</td></tr>
   <tr><td><code>node scripts/qzone.mjs auto</code></td><td>跑一轮：读 + 按规则赞</td></tr>
