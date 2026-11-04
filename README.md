@@ -87,6 +87,7 @@ node scripts/qzone.mjs service uninstall # 连定时任务一起卸掉
 | `digest` | **摘要**：按你的口味排序，只给最值得看的几条 |
 | `digest --images` | 摘要 + 把首图下载到本地 |
 | `learn` | 从你赞过的动态里学习口味 |
+| `friends` | 抓好友亲密度排行，作为排序权重 |
 | `like <id> [更多 id]` | 给指定动态点赞 |
 | `auto` | 跑一轮：读 + 按规则赞 |
 | `auto --dry-run` | 只算不赞，看它会赞哪些 |

@@ -99,7 +99,9 @@ node scripts/qzone.mjs digest --images             # 附图片（自动清理旧
 
 `--types` 可选值：`recruit` 扩列条 · `art` 画画 · `study` 学习技术 · `music` 音乐 · `mood` 情绪吐槽 · `meme` 梗图段子 · `life` 生活记录 · `image` 多图 · `longtext` 长文 · `other` 其他。
 
-**第一次用之前先跑一次 `learn`**，否则没有口味数据，排序等于按「有没有图 + 文字长短」猜。
+**第一次用之前先跑一次 `learn`，再跑一次 `friends`**，否则没有口味数据，排序等于按「有没有图 + 文字长短」猜。
+
+`friends` 会抓好友页的亲密度排行（0~100），存进本机 prefs.json。亲密度反映「你在意谁」，比「谁发得多」稳定，所以也进了打分（0~100 归一化后占 0~2 分）。
 
 ### 2.2 要原始数据才用 feed
 
