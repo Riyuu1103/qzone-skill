@@ -146,7 +146,7 @@ test('太短的 hex 不认', () => assert.equal(isFeedKey('abcd'), false));
 
 console.log('\n[7] token 估算与打分');
 const { estimateTokens } = await import('../scripts/lib/bench.mjs');
-const { scoreItem, classify, typeLabel } = await import('../scripts/lib/digest.mjs');
+const { scoreItem, classify, typeLabel, isHidden } = await import('../scripts/lib/digest.mjs');
 
 const emptyPrefs = { authors: {}, types: {}, globalSeen: 0, globalLiked: 0 };
 const scoreOf = (item, prefs = emptyPrefs) => scoreItem(item, prefs).score;
@@ -197,6 +197,20 @@ test('长文兜底', () =>
   assert.equal(classify({ text: 'x'.repeat(200), imgCount: 0 }), 'longtext'));
 test('什么都没有算 other', () => assert.equal(classify({ text: '嗯', imgCount: 0 }), 'other'));
 test('类型有中文名', () => assert.equal(typeLabel('art'), '画画记录'));
+
+console.log('\n[9] 电脑端读不到内容的动态');
+test('识别「功能内测中」这类占位', () =>
+  assert.equal(isHidden({ text: '功能内测中，内容暂不支持查看。' }), true));
+test('识别「该内容暂不支持查看」', () =>
+  assert.equal(isHidden({ text: '该内容暂不支持查看' }), true));
+test('正常内容不误判', () => assert.equal(isHidden({ text: '今天吃了拉面' }), false));
+test('空正文不误判', () => assert.equal(isHidden({ text: '' }), false));
+test('看不到内容的降权但不会消失', () => {
+  const normal = { name: 'x', text: '普通内容', imgCount: 0 };
+  const hidden = { name: 'x', text: '功能内测中，内容暂不支持查看', imgCount: 0 };
+  assert.ok(scoreOf(hidden) < scoreOf(normal), '应当降权');
+  assert.ok(scoreOf(hidden) > 0, '不该被压成 0 分导致彻底消失');
+});
 
 rmSync(sandbox, { recursive: true, force: true });
 

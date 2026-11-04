@@ -26,6 +26,21 @@ const TYPE_RULES = [
   { type: 'life', kw: ['今天', '吃', '睡', '回家', '出门', '上课', '食堂', '天气'] },
 ];
 
+/**
+ * 电脑端加载不出内容的动态。
+ *
+ * 空间里有些卡片（视频、直播、部分活动组件）在手机端能看，电脑网页端只给一句
+ * 「功能内测中，内容暂不支持查看」。**这不是空动态，是这边读不到正文**。
+ * 处理原则：
+ *   · 摘要里仍然列出，但降权 + 标 H，别让用户以为好友发了句废话；
+ *   · 自动点赞会跳过 —— 看不到内容就点，等于盲赞。
+ */
+export const HIDDEN_TEXTS = ['功能内测中', '内容暂不支持查看', '该内容暂不支持查看'];
+
+export function isHidden(item) {
+  return HIDDEN_TEXTS.some((w) => (item.text || '').includes(w));
+}
+
 /** 给一条动态分类。返回类型名，猜不出就是 other。 */
 export function classify(item) {
   const text = `${item.text || ''}`.toLowerCase();
@@ -169,6 +184,8 @@ export function scoreItem(item, prefs) {
   const len = (item.text || '').length;
   if (len > 80) s += 0.3;
   else if (len > 30) s += 0.15;
+  // 电脑端看不到内容的，降权但仍保留 —— 免得用户以为好友什么都没发
+  if (isHidden(item)) s -= 0.8;
   return { score: Math.round(s * 10) / 10, type };
 }
 
@@ -321,6 +338,8 @@ export async function buildDigest(items, { top = 8, withImages = false, textLen 
       k: it.key.slice(0, 10),
     };
     if (it.liked) row.L = 1;
+    // 电脑端读不到正文的，标出来
+    if (isHidden(it)) row.H = 1;
     if (withImages && it.imgCount) {
       const got = await downloadImage(it.imgs[0], it.key);
       if (got) row.p = got.file;
@@ -328,6 +347,8 @@ export async function buildDigest(items, { top = 8, withImages = false, textLen 
     out.push(row);
   }
 
+  // 整批里有多少条是「这边看不到内容」的，单独告诉调用方
+  const hiddenAll = pool.filter(isHidden);
   const remain = scored.length - out.length;
   return {
     ok: true,
@@ -338,7 +359,15 @@ export async function buildDigest(items, { top = 8, withImages = false, textLen 
       seen: prefs.globalSeen || 0,
       liked: prefs.globalLiked || 0,
       authors: Object.keys(prefs.authors || {}).length,
+      intimacy: Object.keys(prefs.intimacy || {}).length,
     },
+    hidden: hiddenAll.length
+      ? {
+          count: hiddenAll.length,
+          authors: [...new Set(hiddenAll.map((h) => h.name))].slice(0, 8),
+          note: '这些是电脑端加载不出内容的动态（视频/直播等），不是空内容。已在摘要里标 H 并降权，自动点赞会跳过。',
+        }
+      : null,
     // 提示调用方：还有多少条没给，要不要多给一些
     more: remain > 0 ? { remain, hint: `还有 ${remain} 条没显示，加 --top ${Math.min(out.length + remain, out.length + 8)} 可以看更多` } : null,
     typeStats: Object.fromEntries(

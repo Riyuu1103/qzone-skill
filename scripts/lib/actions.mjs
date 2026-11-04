@@ -14,7 +14,7 @@ import { ensureBrowser, closeBrowser } from './browser.mjs';
 import { newPage, goto, evaluate, screenshot } from './cdp.mjs';
 import { loadConfig, loadState, saveState, isPaused, paths } from './store.mjs';
 import { injectSession } from './session.mjs';
-import { learnFrom, buildDigest, cleanImages, imageStorage, classify, saveIntimacy } from './digest.mjs';
+import { learnFrom, buildDigest, cleanImages, imageStorage, classify, saveIntimacy, isHidden } from './digest.mjs';
 import { compareFormats } from './bench.mjs';
 
 const FEED_URL = (uin) => `https://user.qzone.qq.com/${uin}`;
@@ -306,16 +306,16 @@ export function ageHoursFromText(text, now = new Date()) {
   return null;
 }
 
-//: 空间里常见的「占位正文」——这类动态没有真实内容，不该去赞
-const PLACEHOLDER_TEXTS = ['功能内测中', '内容暂不支持查看'];
+//: 电脑端加载不出内容的动态：好友确实发了东西（视频/直播等），只是这边读不到正文。
+//: 看不到内容就不该盲赞，所以跳过 —— 但不是因为它「空」。
 
 /** 按配置里的规则决定一条动态要不要赞 */
 export function shouldLike(item, likeCfg, { likedKeys = {} } = {}) {
   // 没有 data-key 的是广告卡片或特殊模块，不能点赞也别去点
   if (!item.key) return { like: false, why: '没有动态 id（广告或特殊卡片）' };
   if (likedKeys[item.key]) return { like: false, why: '这次运行的更早轮次赞过' };
-  if (PLACEHOLDER_TEXTS.some((w) => (item.text || '').includes(w))) {
-    return { like: false, why: '正文是占位文本，没有真实内容' };
+  if (isHidden(item)) {
+    return { like: false, why: '电脑端读不到正文（视频/直播等），不盲赞' };
   }
   if (item.liked) return { like: false, why: '页面显示已赞' };
 
