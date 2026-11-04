@@ -46,6 +46,7 @@ function fail(reason, extra = {}) {
 const HELP = `QQ 空间工具
 
   node scripts/qzone.mjs login            扫码登录（无窗口，二维码会存成图片）
+  node scripts/qzone.mjs login --headed   扫码登录（弹出真窗口，直接在屏幕上扫）
   node scripts/qzone.mjs status           看登录态 / 开关 / 关键配置
   node scripts/qzone.mjs logout           退出登录（清掉登录态）
   node scripts/qzone.mjs config           看全部配置
@@ -70,11 +71,13 @@ async function main() {
   switch (command) {
     case 'login': {
       const timeoutSec = Number(flags.timeout ?? 180);
+      const headed = Boolean(flags.headed);
       const res = await login({
         timeoutSec,
+        headless: !headed,
         onQr: (p) => {
           // 打到 stderr，避免污染 JSON 输出
-          console.error(`\n[qzone] 请用手机 QQ 扫码登录：${p}\n`);
+          console.error(`\n[qzone] 请用手机 QQ 扫码登录：${p}${headed ? '（也可以直接扫弹出的窗口）' : ''}\n`);
         },
       });
       if (!res.ok) return fail('扫码超时，二维码已过期。重新执行 login 即可', { qrPath: res.qrPath });
@@ -89,11 +92,15 @@ async function main() {
     case 'status': {
       const cfg = loadConfig();
       const acc = cachedAccount();
+      // 真正的判据是 session.json 在不在，光有 uin 是假的
+      const loggedIn = Boolean(acc.uin && acc.hasSession);
       return out(
         {
           ok: true,
-          loggedIn: Boolean(acc.uin),
+          loggedIn,
           account: { uin: acc.uin, nickname: acc.nickname },
+          hasSession: acc.hasSession,
+          hint: loggedIn ? undefined : acc.uin ? '有账号记录但登录凭证已丢失，需要重新 login' : '还没登录过',
           paused: isPaused(),
           auto: { enabled: cfg.auto.enabled, intervalMinutes: cfg.auto.intervalMinutes, like: cfg.auto.like },
           home: paths().home,
@@ -144,7 +151,8 @@ async function main() {
     case 'feed':
     case 'like':
     case 'auto':
-    case 'watch': {
+    case 'watch':
+    case 'explore': {
       // 这几个要开浏览器，延迟加载，保证 help / config 这类命令秒回
       const mod = await import('./lib/actions.mjs');
       return mod.run(command, { ...flags, _: positional }, { out, fail });

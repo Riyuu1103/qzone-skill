@@ -191,25 +191,83 @@ Page.enable / Runtime.enable / Network.enable</code></pre>
 
 <p>放弃的原因是：<strong>这套协议不带浏览器指纹</strong>。扫码成功后拿到的 cookie 是「无头登录」的形态，访问空间时经常被要求二次验证或直接判为异常。而走真实浏览器渲染的登录页，拿到的是「正常网页登录」的会话，稳定得多。</p>
 
-<h3>5.3 登录态的存放</h3>
+<h3>5.3 登录态的存放 —— 这里有一个非直觉的坑</h3>
 
-<p>不在 <code>config.json</code> 里。登录态就是浏览器 profile 里的 cookie，落在 <code>%APPDATA%\qzone-skill\browser</code>。配置里只存 <code>uin</code> 和昵称，用来做前置判断和展示。</p>
+<p>第一版我以为「登录态存在浏览器 profile 里，下次起浏览器自动带上」。实测**这是错的**。</p>
+
+<p>登录成功后查 cookie 库：</p>
+
+<pre><code>.qzone.qq.com  p_skey   persistent=0   ← 0 = session cookie
+.qzone.qq.com  p_uin    persistent=0
+.qq.com        skey     persistent=0
+.qq.com        uin      persistent=0</code></pre>
+
+<p><strong>全是 session cookie。</strong>Chromium 只把它们放在内存里，进程一退就删——profile 目录根本存不住。表现就是：扫码明明成功了，下一条命令却跳回登录页。</p>
+
+<h4>解法：导出 + 注入</h4>
+
+<div class="flow">login 成功 ──▶ Storage.getCookies ──▶ session.json（磁盘）
+                                          │
+每次起浏览器 ──▶ Storage.setCookies ◀─────┘（expires 从 -1 改成 30 天后）</div>
+
+<p>代码在 <code>lib/session.mjs</code>：<code>exportSession()</code> 在登录成功的那一刻抓，<code>injectSession()</code> 在每次导航**之前**注入。</p>
+
+<div class="warn">
+<strong>注入时有两个必须处理的细节</strong>：<br>
+① <code>SameSite=None</code> 必须同时 <code>Secure</code>，否则 Chromium 整批拒绝，报 <code>Invalid cookie fields</code>；<br>
+② 批量注入时只要一条不合法，整批失败且看不出是哪条。所以改成逐条注入并收集失败项。
+</div>
+
+<h4>另一条弯路（记下来免得再走）</h4>
+
+<p>为了省一次扫码，我试过直接从 <code>Cookies</code> sqlite 里解密取 <code>p_skey</code>：<code>v10</code> 前缀 + AES-256-GCM，密钥由 DPAPI 保护、从 <code>Local State</code> 的 <code>os_crypt.encrypted_key</code> 解出。都成功了。</p>
+
+<p>但解出来的「值」是 32 字节乱码——因为 <strong>新版 Chromium 在解密结果前面垫了 32 字节 <code>sha256(host_key)</code></strong>。切掉这 32 字节才是真正的值。我当时没切，把它当成 <code>p_skey</code> 存进了 session.json，注入时报错才发现。</p>
+
+<p>而且这条路本身也没用：<strong>浏览器一退出，Chromium 就把 session cookie 的记录从库里删了</strong>，事后再解密只能拿到残留。所以别绕，老老实实「登录时抓、用时注」。</p>
+
+<h3>5.4 别指望复用用户自己 Edge 的登录态</h3>
+
+<ul>
+  <li>Edge 运行时 <code>User Data\Default\Network\Cookies</code> 被独占打开，Node 读报 <code>EBUSY</code>，<code>Copy-Item</code> 也失败；</li>
+  <li>新版 Chromium 的 App-Bound Encryption 把密钥绑到应用路径，就算复制出来也大概率解不开；</li>
+  <li>综合下来：<strong>扫码是唯一稳的路</strong>，而且只扫一次。</li>
+</ul>
 
 <div class="bad">
-<strong>安全边界</strong>：<code>browser</code> 目录等同账号。代码里没有任何地方会把它读出来、打印出来、或发到网络上。以后加功能也请守住这条。
+<strong>安全边界</strong>：<code>session.json</code> 与 <code>browser</code> 目录等同账号。代码里没有任何地方会把它们打印出来或发到网络上。加功能时也请守住这条。
 </div>
 
 <h2>六、读动态与点赞（actions.mjs）</h2>
 
-<h3>6.1 抓取脚本</h3>
+<h3>6.1 抓取脚本与真实 DOM 结构</h3>
 
-<p>在页面里执行（<code>Runtime.evaluate</code>），返回 <code>{ items, probe }</code>。卡片选择器按优先级试：</p>
+<p>在页面里执行（<code>Runtime.evaluate</code>），返回 <code>{ items, probe }</code>。2026-11 实测的结构：</p>
 
-<pre><code>['li.f-single', 'div.f-single', 'li[class*="f-single"]', '.feed-item']</code></pre>
+<div class="flow">li.f-single  id="fct_123456789_311_5_..."
+├─ .f-single-head
+│   ├─ .f-nick .f-name            ← 发布者昵称
+│   └─ .info-detail .state        ← 时间（"12:45"）
+└─ .f-single-content
+    └─ .f-item[data-key="6896..."]   ← 真正的动态 id
+        └─ .qz_summary i[name="feed_data"][data-tid]  ← tid 在这一层
+            └─ .txt-box              ← 正文（转发的正文也在这）
+                └─ a.nickname        ← 原作者名，正文前面会带上它
+    └─ .f-single-foot            ← 赞按钮在这一层</div>
 
-<p>第一个命中非空的就用。这样即使 QQ 空间在不同账号/地区投放不同版本，也能命中一个。</p>
+<p>几个容易踩错的地方：</p>
 
-<p><code>probe.candidates</code> 会返回每个候选选择器的命中数。这个字段是给排查用的：<code>cardCount: 0</code> 但 <code>[data-key]</code> 有值时，说明结构变了、选择器要更新。</p>
+<table>
+  <tr><th style="width:190px">陷阱</th><th>说明</th></tr>
+  <tr><td>li 的 <code>id</code> 不是动态 id</td><td>它是 <code>fct_&lt;uid&gt;_...</code> 形式的卡片 id。点赞要用的 <code>data-key</code> 在内层 <code>.f-item</code> 上。</td></tr>
+  <tr><td><code>data-tid</code> 不在 <code>.f-item</code> 上</td><td>它挂在更内层的 <code>&lt;i name="feed_data"&gt;</code> 上，得单独查。</td></tr>
+  <tr><td>正文不在 <code>.f-info</code> 里</td><td>纯文字和转发都在 <code>.txt-box</code>。只查 <code>.f-info</code> 会得到一堆空字符串。</td></tr>
+  <tr><td>时间不在 <code>.f-time</code> 里</td><td>在 <code>.info-detail .state</code>，格式是 <code>HH:mm</code>（当天的），更早的会带日期。</td></tr>
+  <tr><td>转发的正文开头带原作者名</td><td><code>.txt-box</code> 的 <code>innerText</code> 形如「飞你爹 ：正文」，要把开头的 <code>a.nickname</code> 剪掉。</td></tr>
+  <tr><td>广告卡片没有 <code>data-key</code></td><td>「热血世界」「散人打金服」这类是空间塞的推广位，没有动态 id，点赞无从谈起，直接跳过。</td></tr>
+</table>
+
+<p><code>probe.candidates</code> 会返回每个选择器的命中数，改版时先看它：<code>li.f-single</code> 有值但 <code>.f-item[data-key]</code> 是 0，说明 id 的位置变了；两个都是 0，说明没登录或页面没加载完。</p>
 
 <h3>6.2 时间换算</h3>
 
@@ -239,7 +297,13 @@ Page.enable / Runtime.enable / Network.enable</code></pre>
   <tr><td><code>ok:false, "点了但状态没变"</code></td><td>风控 / 需要先展开 / 按钮位置错</td><td><strong>停止这一轮</strong>，不要重试</td></tr>
 </table>
 
-<p>点击后固定等 1200ms 再读 class。实测这个延时足够覆盖网络往返；调小会出现「本来成功了却读成失败」。</p>
+<p>点击后固定等 1500ms 再读 class。实测这个延时足够覆盖网络往返；调小会出现「本来成功了却读成失败」。</p>
+
+<p><strong>按钮怎么定位</strong>：<code>data-key</code> 在 <code>.f-item</code> 上，而赞按钮在更外层的 <code>.f-single-foot</code> 里。所以不能直接在被点元素上 <code>querySelector</code>，要先 <code>closest('li.f-single')</code> 往上走一层再找按钮：</p>
+
+<pre><code>const keyEl = [...document.querySelectorAll('[data-key]')].find(n =&gt; n.getAttribute('data-key') === KEY);
+const card  = keyEl.closest('li.f-single') || keyEl;
+const btn   = card.querySelector('[class*="like_btn"]');</code></pre>
 
 <h3>6.5 限速</h3>
 

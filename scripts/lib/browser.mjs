@@ -55,13 +55,16 @@ function lastPort(profileDir) {
 /**
  * 拿到一个可用的浏览器连接。
  * 已有实例能连上就复用（省 2~3 秒启动时间，也避免多实例抢 profile 锁）。
+ * @param {{headless?:boolean, browserPath?:string, extraArgs?:string[], reuse?:boolean}} opts
+ *   reuse=false 时强制起新实例（登录要看到真窗口时用）
  */
-export async function ensureBrowser({ headless = true, browserPath, extraArgs } = {}) {
+export async function ensureBrowser({ headless = true, browserPath, extraArgs, reuse = true } = {}) {
   const { profileDir } = paths();
   await mkdir(profileDir, { recursive: true });
 
   // 1) 先试复用：profile 里记着端口、且 /json/version 还能响应
-  const port = lastPort(profileDir);
+  //    reuse=false 时跳过 —— 有头登录必须重新起一个真窗口，不能捡现成的无头实例
+  const port = reuse ? lastPort(profileDir) : null;
   if (port) {
     try {
       const ver = await waitForPort(port, 1200);

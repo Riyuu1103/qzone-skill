@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { ensureBrowser, closeBrowser } from './browser.mjs';
 import { newPage, goto, evaluate, screenshot } from './cdp.mjs';
 import { loadConfig, loadState, saveState, isPaused, paths } from './store.mjs';
+import { injectSession } from './session.mjs';
 
 const FEED_URL = (uin) => `https://user.qzone.qq.com/${uin}`;
 
@@ -25,57 +26,87 @@ async function withPage(fn, { pageUrl, headless } = {}) {
   const handle = await ensureBrowser({ headless: headless ?? cfg.browser?.headless !== false });
   const { sessionId } = await newPage(handle.cdp, 'about:blank');
   try {
+    // 必须赶在导航之前注入：QQ 空间的登录 cookie 是 session cookie，不会自己留在磁盘上
+    const injected = await injectSession(handle.cdp);
+    if (!injected.count) {
+      throw new Error('本地没有可用的登录态。先执行：node scripts/qzone.mjs login');
+    }
     await goto(handle.cdp, sessionId, pageUrl ?? FEED_URL(uin), 40_000);
     await sleep(3000);
-    return await fn({ cdp: handle.cdp, sessionId, uin, cfg });
+    return await fn({ cdp: handle.cdp, sessionId, uin, cfg, injected });
   } finally {
     await closeBrowser(handle);
   }
 }
 
-//: 从页面里抓动态。选择器覆盖几代 QQ 空间的写法，抓不到会返回 candidates 方便排查。
+//: 从页面里抓动态。
+//: 结构（2026-11 实测）：li.f-single > .f-single-head(.f-nick .f-name / .info-detail .state 时间)
+//:                    > .f-single-content > .f-item[data-key][data-tid] > .txt-box(正文)
+//: 注意：li 的 id 是 fct_xxx，真正的动态 id 在内层 .f-item 的 data-key 上，点赞要用后者。
 const READ_SCRIPT = String.raw`(() => {
-  const CARD_SELECTORS = ['li.f-single', 'div.f-single', 'li[class*="f-single"]', '.feed-item'];
-  let nodes = [];
-  for (const sel of CARD_SELECTORS) {
-    nodes = [...document.querySelectorAll(sel)];
-    if (nodes.length) break;
-  }
-
   const out = [];
   const seen = new Set();
-  for (const el of nodes) {
-    const text = (el.querySelector('.f-info, [class*="f-info"]')?.innerText || '').trim();
-    const name = (el.querySelector('.f-name, [class*="f-name"]')?.innerText || '').trim();
-    const timeText = (el.querySelector('.f-time, [class*="f-time"]')?.innerText || '').trim();
-    const key = el.getAttribute('data-key') || el.getAttribute('data-tid') || el.id || '';
+  const cards = [...document.querySelectorAll('li.f-single')];
+
+  for (const el of cards) {
+    const keyEl = el.querySelector('[data-key]');
+    const key = keyEl?.getAttribute('data-key') || '';
+    // data-tid 挂在内层 <i name="feed_data"> 上，不在 .f-item 上
+    const tid = el.querySelector('[data-tid]')?.getAttribute('data-tid') || '';
+    const id = key || el.id || '';
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+
+    const name = (el.querySelector('.f-nick .f-name')?.textContent || '').trim();
+    const timeText = (el.querySelector('.info-detail .state')?.textContent || '').trim();
+
+    // 正文：优先 .txt-box（文字与转发都在这里），退回 .f-info
+    let text = '';
+    const txtBox = el.querySelector('.txt-box');
+    if (txtBox) {
+      text = (txtBox.innerText || '').trim();
+      // txt-box 开头会带发布者昵称，去掉它
+      const nick = txtBox.querySelector('.nickname');
+      if (nick) {
+        const n = (nick.textContent || '').trim();
+        if (n && text.startsWith(n)) text = text.slice(n.length).replace(/^[\s：:]+/, '');
+      }
+    }
+    if (!text) text = (el.querySelector('.f-info')?.innerText || '').trim();
+
     const likeBtn = el.querySelector('[class*="like_btn"], [class*="qz_like"]');
-    const liked = likeBtn ? /_on|liked|已赞/.test(likeBtn.className || '') : false;
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
+    const liked = likeBtn ? /(_on|liked)/.test(likeBtn.className || '') : false;
+    const hasImage = [...el.querySelectorAll('img')].some(
+      (img) => /\/photo\/|qpic\.cn|photo\.store/.test(img.src || ''),
+    );
+
     out.push({
       key,
+      tid,
+      cardId: el.id || '',
       name,
       text: text.slice(0, 500),
       time: timeText,
       liked,
-      hasImage: Boolean(el.querySelector('img[src*="photo"], [class*="photo"] img')),
+      hasImage,
     });
   }
 
   const candidates = {};
-  for (const sel of ['li.f-single','.f-single','.feed-item','[data-key]','[data-tid]','#feed_list','.f-list','[class*="like_btn"]']) {
+  for (const sel of ['li.f-single', '.f-single', '.f-item[data-key]', '[data-tid]', '[class*="like_btn"]', '.txt-box', '.info-detail .state']) {
     candidates[sel] = document.querySelectorAll(sel).length;
   }
-  return { items: out, probe: { title: document.title, url: location.href, cardCount: nodes.length, candidates } };
+  return { items: out, probe: { title: document.title, url: location.href, cardCount: cards.length, candidates } };
 })()`;
 
 /** 读当前页面的动态（不做点赞，只读） */
 export async function readFeed({ scrolls = 2 } = {}) {
   return withPage(async ({ cdp, sessionId }) => {
+    // 首屏是异步渲染的，先给它一点时间，否则会读到 0 条或只读到一半
+    await sleep(2000);
     for (let i = 0; i < scrolls; i++) {
       await evaluate(cdp, sessionId, 'window.scrollTo(0, document.body.scrollHeight); true').catch(() => {});
-      await sleep(1500);
+      await sleep(2000);
     }
     return evaluate(cdp, sessionId, READ_SCRIPT);
   });
@@ -100,17 +131,24 @@ export async function likeByKeys(keys, { intervalMs } = {}) {
         sessionId,
         `(async () => {
           const KEY = ${JSON.stringify(key)};
-          const el = [...document.querySelectorAll('li.f-single, div.f-single, .feed-item, [data-key]')]
-            .find(n => n.getAttribute('data-key') === KEY || n.getAttribute('data-tid') === KEY || n.id === KEY);
-          if (!el) return { ok: false, reason: 'DOM 里找不到这条动态（可能需要先滚动加载）' };
-          const btn = el.querySelector('[class*="like_btn"], [class*="qz_like"]');
+          // 动态 id 在内层 .f-item[data-key] 上，赞按钮在更外层的 li 里，要往上找
+          const keyEl = [...document.querySelectorAll('[data-key]')]
+            .find(n => n.getAttribute('data-key') === KEY);
+          if (!keyEl) return { ok: false, reason: 'DOM 里找不到这条动态（可能需要先滚动加载）' };
+          const card = keyEl.closest('li.f-single') || keyEl.parentElement || keyEl;
+          const btn = card.querySelector('[class*="like_btn"], [class*="qz_like"]');
           if (!btn) return { ok: false, reason: '找不到赞按钮' };
           const before = btn.className || '';
           if (/_on|liked/.test(before)) return { ok: true, skipped: true, reason: '已经赞过了', before };
           btn.click();
-          await new Promise(r => setTimeout(r, 1200));
+          await new Promise(r => setTimeout(r, 1500));
           const after = btn.className || '';
-          return { ok: /_on|liked/.test(after), before, after, reason: /_on|liked/.test(after) ? 'ok' : '点了但状态没变（可能被风控或按钮结构变了）' };
+          return {
+            ok: /_on|liked/.test(after),
+            before,
+            after,
+            reason: /_on|liked/.test(after) ? 'ok' : '点了但状态没变（可能被风控或按钮结构变了）',
+          };
         })()`,
       ).catch((e) => ({ ok: false, reason: e.message }));
       results.push({ key, ...r });
@@ -143,9 +181,17 @@ export function ageHoursFromText(text, now = new Date()) {
   return null;
 }
 
+//: 空间里常见的「占位正文」——这类动态没有真实内容，不该去赞
+const PLACEHOLDER_TEXTS = ['功能内测中', '内容暂不支持查看'];
+
 /** 按配置里的规则决定一条动态要不要赞 */
 export function shouldLike(item, likeCfg, { likedKeys = {} } = {}) {
+  // 没有 data-key 的是广告卡片或特殊模块，不能点赞也别去点
+  if (!item.key) return { like: false, why: '没有动态 id（广告或特殊卡片）' };
   if (likedKeys[item.key]) return { like: false, why: '这次运行的更早轮次赞过' };
+  if (PLACEHOLDER_TEXTS.some((w) => (item.text || '').includes(w))) {
+    return { like: false, why: '正文是占位文本，没有真实内容' };
+  }
   if (item.liked) return { like: false, why: '页面显示已赞' };
 
   const allow = likeCfg.allowUsers ?? [];
@@ -203,6 +249,15 @@ export async function runAuto({ dryRun = false, scrolls = 2 } = {}) {
     dryRun,
     total: feed.items.length,
     picked: picked.length,
+    // dry-run 时把「本来会赞哪些」列出来，方便先看再决定
+    willLike: dryRun
+      ? picked.map((p) => ({
+          key: p.item.key,
+          name: p.item.name,
+          time: p.item.time,
+          text: (p.item.text || '').slice(0, 60),
+        }))
+      : undefined,
     skipped: decided.filter((d) => !d.like).map((d) => ({ key: d.item.key, name: d.item.name, why: d.why })),
     liked: likeResults.results ?? [],
     probe: feed.probe,

@@ -12,6 +12,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { ensureBrowser, closeBrowser } from './browser.mjs';
 import { newPage, goto, evaluate, screenshot } from './cdp.mjs';
 import { paths, loadConfig, saveConfig } from './store.mjs';
+import { exportSession, injectSession, clearSession, hasSession } from './session.mjs';
 
 const LOGIN_URL = 'https://user.qzone.qq.com/';
 //: 登录成功后地址形如 https://user.qzone.qq.com/1234567890
@@ -22,6 +23,22 @@ export async function detectLogin(cdp, sessionId) {
   const href = await evaluate(cdp, sessionId, 'location.href');
   const m = String(href).match(LOGGED_IN);
   if (m) return { loggedIn: true, uin: m[1], url: href };
+
+  // 兜底：URL 有时不会变成 /<uin>（会先在 i.qq.com 中转），但登录成功后
+  // 一定会下发 p_skey / skey 这两个 cookie。只看 cookie 名，不解密、不打印值。
+  try {
+    const { cookies } = await cdp.send('Storage.getCookies');
+    const has = cookies.some((c) => c.domain.includes('qq.com') && c.name === 'p_skey' && c.value);
+    if (has) {
+      const uinCookie = cookies.find((c) => c.domain.includes('qq.com') && /^(p_uin|uin|pt2gguin)$/.test(c.name));
+      const raw = uinCookie?.value ?? '';
+      // p_uin 形如 "o0123456789"；pt2gguin 形如 "o0123456789"
+      const uin = raw.replace(/^o0*/i, '');
+      if (/^\d{5,}$/.test(uin)) return { loggedIn: true, uin, url: href, via: 'cookie' };
+    }
+  } catch {
+    /* 拿不到 cookie 就按未登录处理 */
+  }
   return { loggedIn: false, uin: null, url: href };
 }
 
@@ -60,25 +77,36 @@ async function captureQr(cdp, sessionId, outPath) {
  * 扫码登录。
  * @param {object} opts
  * @param {number} opts.timeoutSec 等多久（默认 180 秒）
+ * @param {boolean} opts.headless  true=不弹窗口（默认），false=弹出真窗口让用户在屏幕上扫
  * @param {(p:string)=>void} opts.onQr 二维码生成/刷新时的回调
  */
-export async function login({ timeoutSec = 180, onQr } = {}) {
+export async function login({ timeoutSec = 180, headless = true, onQr } = {}) {
   const { outDir } = paths();
   mkdirSync(outDir, { recursive: true });
   const qrPath = join(outDir, 'login-qr.png');
 
-  const handle = await ensureBrowser({ headless: true });
-  const { sessionId } = await newPage(handle.cdp, 'about:blank');
+  // 有头模式必须先关掉可能残留的无头实例，否则会复用它、窗口永远不出现
+  if (!headless) {
+    const old = await ensureBrowser({ headless: true }).catch(() => null);
+    if (old) await closeBrowser(old).catch(() => {});
+  }
+
+  const handle = await ensureBrowser({ headless, reuse: headless });
+  let { sessionId } = await newPage(handle.cdp, 'about:blank');
 
   try {
+    // 先把上次导出的登录态注回去，否则每次都判定成「未登录」要重扫
+    await injectSession(handle.cdp).catch(() => {});
     await goto(handle.cdp, sessionId, LOGIN_URL, 40_000);
     await sleep(2500);
 
     // 已经登录过就直接返回（用户重复执行 login 时不折腾）
-    let state = await detectLogin(handle.cdp, sessionId);
+    let state = await detectLogin(handle.cdp, sessionId).catch(() => ({ loggedIn: false, uin: null }));
     if (state.loggedIn) {
       await persistAccount(handle.cdp, sessionId, state.uin);
-      return { ok: true, already: true, ...state, qrPath: null };
+      // 已经登录也要重新导出一次：session cookie 每次浏览器重启都会丢
+      const saved = await exportSession(handle.cdp);
+      return { ok: true, already: true, ...state, qrPath: null, saved };
     }
 
     await captureQr(handle.cdp, sessionId, qrPath);
@@ -86,15 +114,42 @@ export async function login({ timeoutSec = 180, onQr } = {}) {
 
     const deadline = Date.now() + timeoutSec * 1000;
     let lastRefresh = Date.now();
+    let consecutiveErrors = 0;
 
     while (Date.now() < deadline) {
       await sleep(2000);
-      state = await detectLogin(handle.cdp, sessionId);
+
+      // 页面跳转 / 重载期间 evaluate 会卡住甚至超时。这种情况不能让整个登录崩掉，
+      // 重开一个标签页接着等就行（二维码会重新渲染，重截一张即可）。
+      try {
+        state = await detectLogin(handle.cdp, sessionId);
+        consecutiveErrors = 0;
+      } catch (e) {
+        consecutiveErrors++;
+        if (consecutiveErrors >= 2) {
+          try {
+            const fresh = await newPage(handle.cdp, 'about:blank');
+            sessionId = fresh.sessionId;
+            await goto(handle.cdp, sessionId, LOGIN_URL, 40_000);
+            await sleep(2000);
+            await captureQr(handle.cdp, sessionId, qrPath);
+            onQr?.(qrPath);
+            lastRefresh = Date.now();
+          } catch {
+            /* 重开也失败就继续下一轮 */
+          }
+          consecutiveErrors = 0;
+        }
+        continue;
+      }
+
       if (state.loggedIn) {
         // 等空间首页把用户信息写进 cookie / DOM
         await sleep(1500);
         const account = await persistAccount(handle.cdp, sessionId, state.uin);
-        return { ok: true, already: false, ...state, account, qrPath };
+        // 关键：session cookie 关浏览器就没了，这里趁它还在内存里抓出来存盘
+        const saved = await exportSession(handle.cdp);
+        return { ok: true, already: false, ...state, account, qrPath, saved };
       }
       // 二维码约 2 分钟过期，页面会自己轮换；这里定时重截，保证用户看到的是有效的
       if (Date.now() - lastRefresh > 25_000) {
@@ -116,11 +171,19 @@ async function persistAccount(cdp, sessionId, uin) {
     nickname = await evaluate(
       cdp,
       sessionId,
-      `(document.querySelector('#QZ_Bg_Title, .head-name, #QZ_Bg_Title a')?.textContent || document.title || '').trim()`,
+      `(document.querySelector('#QZ_Bg_Title, .head-name, #QZ_Bg_Title a, .qz-name')?.textContent || document.title || '').trim()`,
     );
   } catch {
     /* 昵称拿不到不影响主流程 */
   }
+
+  // 空间首页的 title 形如「某某的空间 [http://123.qzone.qq.com]」，
+  // 直接当昵称很脏，这里把网址和「的空间」后缀去掉
+  nickname = String(nickname ?? '')
+    .replace(/\s*\[https?:\/\/[^\]]*\]/gi, '')
+    .replace(/\s*的空间$/, '')
+    .trim();
+
   // 有些页面拿不到昵称，退化用 cookie 里的昵称字段
   if (!nickname) {
     try {
@@ -140,19 +203,25 @@ async function persistAccount(cdp, sessionId, uin) {
   return cfg.account;
 }
 
-/** 读当前登录态（不开新页面也能判断：配置里有 uin + 浏览器目录在） */
+/** 读当前登录态（不开浏览器也能判断） */
 export function cachedAccount() {
   const cfg = loadConfig();
   const { profileDir } = paths();
-  const hasProfile = existsSync(profileDir);
-  return { uin: cfg.account?.uin || '', nickname: cfg.account?.nickname || '', hasProfile };
+  return {
+    uin: cfg.account?.uin || '',
+    nickname: cfg.account?.nickname || '',
+    hasProfile: existsSync(profileDir),
+    // 配置里有 uin 不代表真能登进去：session.json 才是真正的凭证
+    hasSession: hasSession(),
+  };
 }
 
-/** 退出登录：删掉浏览器配置目录（登录态就在里面） */
+/** 退出登录：删掉浏览器配置目录（登录态就在里面），并清掉导出的 session */
 export async function logout() {
   const { profileDir } = paths();
   const { rm } = await import('node:fs/promises');
   await rm(profileDir, { recursive: true, force: true });
+  await clearSession();
   const cfg = loadConfig();
   cfg.account = { uin: '', nickname: '' };
   saveConfig(cfg);

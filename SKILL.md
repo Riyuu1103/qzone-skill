@@ -29,6 +29,10 @@ node scripts/qzone.mjs status
 - `true` → 直接干活
 - `false` → 让用户扫码：`node scripts/qzone.mjs login`，二维码图片路径会在输出里（`qrPath`），把路径告诉用户让他扫。**不要尝试用密码登录，也不要去读用户的浏览器 cookie。**
 
+`loggedIn: false` 但 `account.uin` 有值时，说明**登录凭证丢了但账号记录还在**，重新 `login` 即可，不用 `logout`。
+
+> `loggedIn` 的真正依据是 `session.json` 在不在。QQ 空间的登录 cookie 是 session cookie，浏览器一关就没，所以凭证是单独存盘的，不是靠浏览器配置目录。
+
 输出里还有 `paused` 和 `auto.enabled`，做自动刷相关任务时先看这两个。
 
 ---
@@ -162,9 +166,12 @@ node scripts/qzone.mjs feed        # 3. 能不能读到
 |---|---|---|
 | `status.loggedIn: false` | 登录态没了（过期或换了机器） | 重新 `login` 扫码 |
 | `explore.counts` 全是 0 | 页面没加载完 / 被要求验证 | 看 `explore.screenshot`，把图给用户看 |
-| `counts` 里 `[data-key]` 有值但 `li.f-single` 是 0 | 页面改版了，选择器要更新 | 改 `scripts/lib/actions.mjs` 的 `READ_SCRIPT` |
+| `li.f-single` 有值但 `.f-item[data-key]` 是 0 | 页面改版了，动态 id 换位置了 | 改 `scripts/lib/actions.mjs` 的 `READ_SCRIPT` |
+| 正文读出来全是空 | 正文容器换了（现在在 `.txt-box`） | 同上 |
 | 点赞返回「点了但状态没变」 | 风控 | 停手，等几小时再说，别连着重试 |
 | 浏览器起不来 | 找不到 Edge/Chrome | 设 `QZONE_BROWSER` 环境变量指到可执行文件 |
+
+> 真实的 DOM 结构（2026-11 实测）写在 `docs/QZone刷空间-开发者手册.pdf` 第 6 章。改选择器前先看那里，别靠猜。
 
 ---
 

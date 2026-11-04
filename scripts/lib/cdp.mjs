@@ -27,21 +27,22 @@ export function findBrowser(explicit) {
 }
 
 export class Cdp {
-  constructor(ws) {
+  constructor(ws, { rpcTimeout = 30_000 } = {}) {
     this.ws = ws;
     this.seq = 0;
     this.pending = new Map();
     this.handlers = new Map();
+    this.rpcTimeout = rpcTimeout;
     ws.addEventListener('message', (ev) => this._onMessage(ev.data));
   }
 
-  static async connect(wsUrl) {
+  static async connect(wsUrl, opts) {
     const ws = new WebSocket(wsUrl);
     await new Promise((resolve, reject) => {
       ws.addEventListener('open', resolve, { once: true });
       ws.addEventListener('error', () => reject(new Error('CDP WebSocket 连接失败')), { once: true });
     });
-    return new Cdp(ws);
+    return new Cdp(ws, opts);
   }
 
   _onMessage(raw) {
@@ -64,10 +65,11 @@ export class Cdp {
     for (const fn of this.handlers.get(key) ?? []) fn(msg.params);
   }
 
-  send(method, params = {}, sessionId) {
+  send(method, params = {}, sessionId, { timeoutMs } = {}) {
     const id = ++this.seq;
     const payload = { id, method, params };
     if (sessionId) payload.sessionId = sessionId;
+    const limit = timeoutMs ?? this.rpcTimeout;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
       this.ws.send(JSON.stringify(payload));
@@ -76,7 +78,7 @@ export class Cdp {
           this.pending.delete(id);
           reject(new Error(`CDP 超时: ${method}`));
         }
-      }, 60_000);
+      }, limit);
     });
   }
 

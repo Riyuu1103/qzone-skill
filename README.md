@@ -172,6 +172,8 @@ references/troubleshooting.md  出问题怎么查
 
 代价是要开浏览器 —— 但它是无窗口的，你看不到。
 
+**一个值得知道的细节**：QQ 空间的登录 cookie（`p_skey` / `p_uin` 这些）是 **session cookie**，浏览器一关就没了，光靠浏览器配置目录是存不住的。所以本工具在登录成功的那一刻把 cookie 抓出来存到 `session.json`，之后每次启动再注回去。这就是为什么 `login` 只需要做一次。
+
 ---
 
 ## 风险与边界

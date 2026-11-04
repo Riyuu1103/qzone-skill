@@ -64,6 +64,9 @@ const likeCfg = {
 const base = { key: 'k1', name: '张三', text: '今天天气不错', time: '3小时前', liked: false };
 
 test('正常动态应该赞', () => assert.equal(shouldLike(base, likeCfg).like, true));
+test('没有动态 id 的广告卡片不赞', () => assert.equal(shouldLike({ ...base, key: '' }, likeCfg).like, false));
+test('占位正文不赞', () =>
+  assert.equal(shouldLike({ ...base, text: '功能内测中，内容暂不支持查看' }, likeCfg).like, false));
 test('已赞过的不重复赞', () => assert.equal(shouldLike({ ...base, liked: true }, likeCfg).like, false));
 test('上轮赞过的跳过', () =>
   assert.equal(shouldLike(base, likeCfg, { likedKeys: { k1: 1 } }).like, false));
