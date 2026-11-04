@@ -61,6 +61,15 @@ export const DEFAULT_CONFIG = {
     },
   },
 
+  // 内容过滤
+  content: {
+    // 负面内容（情绪吐槽 / 坏消息）怎么处理：
+    //   'demote'  降权排后但可见（默认，最温和）
+    //   'exclude' 完全过滤
+    //   'include' 不处理
+    negative: 'demote',
+  },
+
   // 结果通知：不配就只在终端打印
   notify: {
     // 任意可执行命令，通知内容通过环境变量 QZONE_TEXT 传入

@@ -592,6 +592,7 @@ export async function run(command, flags, io) {
       case 'watch':
         return watch({ intervalMinutes: flags.interval ? Number(flags.interval) : undefined });
       case 'digest': {
+        const cfg = loadConfig();
         const r = await readFeed({ limit: Number(flags.limit ?? 40) });
         const state = loadState();
         let items = r.items;
@@ -608,6 +609,7 @@ export async function run(command, flags, io) {
           withImages: Boolean(flags.images),
           onlyTypes: flags.types ? String(flags.types).split(',').map((s) => s.trim()) : undefined,
           cleanup: flags['no-cleanup'] ? false : undefined,
+          negative: flags.negative || cfg.content?.negative || 'demote',
         });
         const newest = pickCursorKey(r.items);
         advanceCursor(newest);

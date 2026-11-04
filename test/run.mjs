@@ -146,7 +146,7 @@ test('太短的 hex 不认', () => assert.equal(isFeedKey('abcd'), false));
 
 console.log('\n[7] token 估算与打分');
 const { estimateTokens } = await import('../scripts/lib/bench.mjs');
-const { scoreItem, classify, typeLabel, isHidden } = await import('../scripts/lib/digest.mjs');
+const { scoreItem, classify, typeLabel, isHidden, negativity } = await import('../scripts/lib/digest.mjs');
 
 const emptyPrefs = { authors: {}, types: {}, globalSeen: 0, globalLiked: 0 };
 const scoreOf = (item, prefs = emptyPrefs) => scoreItem(item, prefs).score;
@@ -205,6 +205,36 @@ test('识别「该内容暂不支持查看」', () =>
   assert.equal(isHidden({ text: '该内容暂不支持查看' }), true));
 test('正常内容不误判', () => assert.equal(isHidden({ text: '今天吃了拉面' }), false));
 test('空正文不误判', () => assert.equal(isHidden({ text: '' }), false));
+console.log('\n[10] 负面内容识别');
+test('情绪类识别为 level 1', () => {
+  const r = negativity({ text: '好烦啊不想动，心累' });
+  assert.equal(r.level, 1);
+  assert.ok(r.tags.includes('mood'));
+});
+test('坏消息识别为 level 2', () => {
+  const r = negativity({ text: '听说他家里出了事故' });
+  assert.equal(r.level, 2);
+  assert.ok(r.tags.includes('news'));
+});
+test('「笑死」不能因为含「死」被判负面', () => assert.equal(negativity({ text: '哈哈哈哈笑死我了' }).level, 0));
+test('「积累」不能因为含「累」被判负面', () => assert.equal(negativity({ text: '知识的积累很重要' }).level, 0));
+test('普通内容不是负面', () => assert.equal(negativity({ text: '今天去吃了拉面' }).level, 0));
+test('空正文不是负面', () => assert.equal(negativity({ text: '' }).level, 0));
+test('demote 模式下降权但仍保留', () => {
+  const item = { name: 'x', text: '好烦啊心累', imgCount: 0 };
+  const asIs = scoreItem(item, {}, { negative: 'include' }).score;
+  const demoted = scoreItem(item, {}, { negative: 'demote' }).score;
+  assert.ok(demoted < asIs, '应当降权');
+  assert.ok(demoted > 0, '不该归零消失');
+});
+test('normal 内容不受 negative 设置影响', () => {
+  const item = { name: 'x', text: '今天去吃了拉面', imgCount: 0 };
+  assert.equal(
+    scoreItem(item, {}, { negative: 'include' }).score,
+    scoreItem(item, {}, { negative: 'demote' }).score,
+  );
+});
+
 test('看不到内容的降权但不会消失', () => {
   const normal = { name: 'x', text: '普通内容', imgCount: 0 };
   const hidden = { name: 'x', text: '功能内测中，内容暂不支持查看', imgCount: 0 };

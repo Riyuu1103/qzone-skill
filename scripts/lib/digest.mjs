@@ -41,6 +41,97 @@ export function isHidden(item) {
   return HIDDEN_TEXTS.some((w) => (item.text || '').includes(w));
 }
 
+/**
+ * 负面内容识别。
+ *
+ * 用户可能不想在看空间时被情绪或坏消息砸脸，所以这类内容要能被识别、能被选择。
+ * 分两级：
+ *   level 1 = 情绪类（吐槽、崩溃、emo）
+ *   level 2 = 事件类（讣告、事故、灾难、裁员这类新闻）
+ *
+ * 难点是误伤：「笑死」「乐死」是正面梗，不能因为含「死」就判负面；
+ * 「累」在「积累」「累积」里也不是情绪。所以先过一遍正面词，再匹配负面词。
+ */
+const POSITIVE_HINTS = [
+  '笑死',
+  '乐死',
+  '开心',
+  '哈哈',
+  '太好了',
+  '好耶',
+  '好消息',
+  '终于',
+  '成功了',
+  '过了',
+  '上岸',
+];
+
+const NEG_MOOD = [
+  '难受',
+  '好烦',
+  '烦躁',
+  '心烦',
+  '心累',
+  '好累',
+  '累死',
+  '崩溃',
+  '焦虑',
+  '想死',
+  '不想活',
+  '失眠',
+  'emo',
+  '抑郁',
+  '绝望',
+  '难过',
+  '想哭',
+  '痛苦',
+  '委屈',
+  '压垮',
+  '撑不住',
+];
+
+const NEG_NEWS = [
+  '去世',
+  '逝世',
+  '死亡',
+  '讣告',
+  '遇难',
+  '自杀',
+  '病危',
+  '癌症',
+  '事故',
+  '灾难',
+  '地震',
+  '火灾',
+  '洪水',
+  '疫情',
+  '战争',
+  '开战',
+  '裁员',
+  '失业',
+  '暴跌',
+  '崩盘',
+  '坠机',
+  '凶杀',
+  '虐杀',
+];
+
+/**
+ * @returns {{level: 0|1|2, tags: string[]}}
+ */
+export function negativity(item) {
+  const t = (item.text || '').toLowerCase();
+  if (!t) return { level: 0, tags: [] };
+  // 先排除正面表达，避免「笑死」被判成负面
+  if (POSITIVE_HINTS.some((w) => t.includes(w))) return { level: 0, tags: [] };
+
+  const tags = [];
+  if (NEG_NEWS.some((w) => t.includes(w))) tags.push('news');
+  if (NEG_MOOD.some((w) => t.includes(w))) tags.push('mood');
+  if (!tags.length) return { level: 0, tags: [] };
+  return { level: tags.includes('news') ? 2 : 1, tags };
+}
+
 /** 给一条动态分类。返回类型名，猜不出就是 other。 */
 export function classify(item) {
   const text = `${item.text || ''}`.toLowerCase();
@@ -166,10 +257,13 @@ function rate(stat, prefs, alpha = 2) {
 }
 
 /**
- * 打分。分四块：亲密度、作者偏好率、类型偏好率、内容本身特征。
- * 全部用比例/归一化值，所以「发得多但你不爱看」的人不会排到前面。
+ * 打分。分五块：亲密度、作者偏好率、类型偏好率、内容特征、负面内容处理。
+ * @param {object} item
+ * @param {object} prefs
+ * @param {{negative?: 'include'|'demote'|'exclude'}} opts
+ *   include = 不过滤也不降权；demote = 降权排后；exclude = 直接排除
  */
-export function scoreItem(item, prefs) {
+export function scoreItem(item, prefs, { negative = 'demote' } = {}) {
   const type = classify(item);
   const aRate = rate(prefs.authors?.[item.name], prefs);
   const tRate = rate(prefs.types?.[type], prefs);
@@ -186,7 +280,10 @@ export function scoreItem(item, prefs) {
   else if (len > 30) s += 0.15;
   // 电脑端看不到内容的，降权但仍保留 —— 免得用户以为好友什么都没发
   if (isHidden(item)) s -= 0.8;
-  return { score: Math.round(s * 10) / 10, type };
+  // 负面内容按用户选择处理
+  const neg = negativity(item);
+  if (negative === 'demote' && neg.level > 0) s -= neg.level * 0.9;
+  return { score: Math.round(s * 10) / 10, type, neg };
 }
 
 /** 按文件头猜真实格式（qpic 经常返回 webp，但 URL 后缀写的是 jpg） */
@@ -305,16 +402,20 @@ async function downloadImage(url, key) {
  * @param {object} opts.onlyTypes 只保留这些类型（数组）
  * @param {object} opts.cleanup 图片清理参数（false 关闭）
  */
-export async function buildDigest(items, { top = 8, withImages = false, textLen = 80, onlyTypes, cleanup } = {}) {
+export async function buildDigest(items, { top = 8, withImages = false, textLen = 80, onlyTypes, cleanup, negative = 'demote' } = {}) {
   const prefs = loadPrefs();
 
   let pool = items.filter((it) => it.key);
   if (onlyTypes?.length) pool = pool.filter((it) => onlyTypes.includes(classify(it)));
 
+  // 负面内容：exclude 直接拿走；demote/include 留在池子里，靠打分区分
+  const negAll = pool.filter((it) => negativity(it).level > 0);
+  if (negative === 'exclude') pool = pool.filter((it) => negativity(it).level === 0);
+
   const scored = pool
     .map((it) => {
-      const { score, type } = scoreItem(it, prefs);
-      return { it, score, type };
+      const { score, type, neg } = scoreItem(it, prefs, { negative });
+      return { it, score, type, neg };
     })
     .sort((a, b) => b.score - a.score);
 
@@ -327,7 +428,7 @@ export async function buildDigest(items, { top = 8, withImages = false, textLen 
   }
 
   const out = [];
-  for (const { it, score, type } of picked) {
+  for (const { it, score, type, neg } of picked) {
     const row = {
       t: it.time || '',
       a: it.name || '',
@@ -340,6 +441,11 @@ export async function buildDigest(items, { top = 8, withImages = false, textLen 
     if (it.liked) row.L = 1;
     // 电脑端读不到正文的，标出来
     if (isHidden(it)) row.H = 1;
+    // 负面内容标 N（level），让调用方自己决定怎么说
+    if (neg && neg.level > 0) {
+      row.N = neg.level;
+      row.T = neg.tags;
+    }
     if (withImages && it.imgCount) {
       const got = await downloadImage(it.imgs[0], it.key);
       if (got) row.p = got.file;
@@ -361,6 +467,21 @@ export async function buildDigest(items, { top = 8, withImages = false, textLen 
       authors: Object.keys(prefs.authors || {}).length,
       intimacy: Object.keys(prefs.intimacy || {}).length,
     },
+    negative:
+      negative === 'exclude'
+        ? { mode: 'exclude', filtered: negAll.length, note: '按你的设置，负面内容已全部过滤' }
+        : negAll.length
+          ? {
+              mode: negative,
+              count: negAll.length,
+              mood: negAll.filter((x) => negativity(x).tags.includes('mood')).length,
+              news: negAll.filter((x) => negativity(x).tags.includes('news')).length,
+              note:
+                negative === 'demote'
+                  ? '有情绪/坏消息类内容，已降权排后但仍可见。不想看可以设 content.negative = exclude'
+                  : '负面内容按设置正常展示',
+            }
+          : null,
     hidden: hiddenAll.length
       ? {
           count: hiddenAll.length,
