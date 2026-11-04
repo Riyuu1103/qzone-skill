@@ -89,39 +89,132 @@ node scripts/qzone.mjs config auto.like.maxPerRun 5   # 改
 读好友动态。
 
 ```
-node scripts/qzone.mjs feed [--scrolls 2]
+node scripts/qzone.mjs feed [--limit 25] [--images]
 ```
 
 | 参数 | 默认 | 说明 |
 |---|---|---|
-| `--scrolls` | 2 | 向下滚几屏（每屏等 1.5 秒）。滚得越多读到的越旧 |
+| `--limit` | 0 | 目标条数。0 = 只读首屏不滚动（快）；25 会滚到页面加载上限（约 23 条） |
+| `--images` | 关 | 是否输出完整图片 URL 数组（默认只给第一张） |
 
 **输出**：
 
 ```json
 {
   "ok": true,
-  "count": 12,
+  "count": 23,
   "items": [
     {
-      "key": "abc123",
+      "key": "abcdef1234567890abcdef12",
+      "tid": "abcdef1234567890abcdef12",
+      "cardId": "fct_123456789_311_5_1700000000_0_1",
       "name": "张三",
       "text": "正文（最多 500 字）",
-      "time": "3小时前",
+      "time": "12:45",
       "liked": false,
-      "hasImage": true
+      "hasImage": true,
+      "imgCount": 3,
+      "img": "https://a1.qpic.cn/psc?/..."
     }
   ],
-  "probe": {
-    "title": "QQ空间",
-    "url": "https://user.qzone.qq.com/123456789",
-    "cardCount": 12,
-    "candidates": { "li.f-single": 12, "[data-key]": 12 }
-  }
+  "probe": { "cardCount": 23, "candidates": { "li.f-single": 23 } }
 }
 ```
 
 `probe` 是排查用的：`cardCount` 是 0 说明页面结构变了或没登录。
+
+**实测**：单次最多 23 条，覆盖约 4.4 小时；读满约 67 秒，首屏约 15 秒。
+
+---
+
+## digest
+
+摘要。按口味排序，只给最值得看的几条，最省 token。
+
+```
+node scripts/qzone.mjs digest [--limit 25] [--top 8] [--images] [--since]
+```
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `--limit` | 40 | 先读多少条再排序（实际受页面 23 条上限约束） |
+| `--top` | 8 | 输出几条 |
+| `--images` | 关 | 把每条的首图下载到本地，返回路径 |
+| `--since` | 关 | 只给上次 `digest` 之后的新内容 |
+
+**输出**（短键）：
+
+```json
+{
+  "ok": true,
+  "total": 23,
+  "shown": 8,
+  "read": 23,
+  "skippedOld": 19,
+  "prefs": { "likedSamples": 14, "authors": 7 },
+  "items": [
+    { "t": "12:33", "a": "示例同学", "x": "正文前 80 字…", "n": 3, "s": 3.2, "k": "d98289a49a", "L": 1, "p": "C:\\...\\out\\img\\283e171576.webp" }
+  ]
+}
+```
+
+字段：`t` 时间 / `a` 作者 / `x` 正文 / `n` 图片数 / `s` 分数 / `k` 短 id（10 位）/ `L` 你赞过 / `p` 本地图片路径。
+
+**打分规则**（`lib/digest.mjs` 的 `scoreItem`）：
+
+```
+1 分基础
++ 作者权重（log2(点赞次数+1)，上限 3）
++ 有图 0.5 + min(0.5, 图数×0.1)
++ 正文 >80 字 +0.4，>30 字 +0.2
+```
+
+分数只用于排序，不代表内容好坏。
+
+**token 实测**：digest 全量 336，feed 全量 3526 —— **约 10%**。
+
+---
+
+## learn
+
+从已经赞过的动态里学习口味。
+
+```
+node scripts/qzone.mjs learn [--limit 60]
+```
+
+扫描当前动态列表，把 `liked: true` 的按作者累计到 `prefs.json`。
+
+```json
+{ "ok": true, "added": 11, "authors": 7, "likedSamples": 11, "read": 23 }
+```
+
+**建议**：第一次用 `digest` 之前跑一次；后面可以每周跑一次更新。
+
+---
+
+## bench
+
+测各输出格式的 token 占用。同一份数据、四种呈现，只开一次浏览器。
+
+```
+node scripts/qzone.mjs bench [--limit 25] [--top 8]
+```
+
+```json
+{
+  "ok": true,
+  "itemCount": 18,
+  "formats": [
+    { "name": "feed 全量（含图片 URL）", "bytes": 12506, "tokens": 3526, "vsFull": "100%" },
+    { "name": "feed 精简（不带图片 URL）", "bytes": 6772, "tokens": 1933, "vsFull": "55%" },
+    { "name": "feed 极简（短键）", "bytes": 2033, "tokens": 616, "vsFull": "17%" },
+    { "name": "digest（按口味排序后 top N）", "bytes": 1108, "tokens": 336, "vsFull": "10%" }
+  ]
+}
+```
+
+token 是粗估（中日韩字符 1 个/token，其余 3.6 字符/token），只看相对量级。
 
 ---
 

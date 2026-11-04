@@ -157,6 +157,69 @@ schtasks /Delete /TN "QZone Auto Like" /F
 
 ---
 
+## 摘要与图片
+
+### `digest` 返回 0 条
+
+- 先看 `total`：`total` 是 0 → 没读到内容，按上一节排查
+- `total` 有值但 `shown` 是 0 → 加了 `--since` 且确实没有新内容，正常
+- 用了 `--since` 但 `skippedOld` 也是 0 → 游标丢了（间隔太久，那条已被挤出列表），这轮会返回全部
+
+### 排序看着不对
+
+`prefs.likedSamples` 是 0 说明还没学口味，排序等于按「有没有图 + 正文长短」。
+
+```bash
+node scripts/qzone.mjs learn
+```
+
+### 读到的条数远少于 23
+
+QQ 空间是懒加载，每次滚动只多 4 条。可能的原因：
+
+1. 网络慢，4～6.5 秒内没加载出来 → 重跑一次
+2. 已经滚到底（页面本身就只有这么多）→ 正常
+3. `--limit` 设成了 0 → 只读首屏，约 7 条
+
+### 图片下载失败（`p` 字段缺失）
+
+`p` 只在 `--images` 时出现，下载失败就不给这个字段。原因可能是：
+
+- 图片 URL 过期（qpic 的 psc 链接有时效）
+- 网络超时（脚本里给 15 秒）
+- 文件小于 512 字节的被当成坏图丢弃
+
+**不影响主流程**，只是那条没图。
+
+### 图片打不开 / 格式不对
+
+qpic 经常返回 **webp** 但 URL 后缀写的是 jpg。脚本已按文件头纠正扩展名（`.webp` / `.png` / `.jpg`）。如果你手动另存过，注意扩展名要和实际格式一致。
+
+---
+
+## 增量（`--since`）
+
+### 每次都返回全部，不生效
+
+游标存在 `state.json` 的 `lastCursor`。两种可能：
+
+1. 从没成功推进过游标 → 正常，第一次就是全量
+2. 游标指向的旧动态已经被挤出列表 → 会返回全部并重新建立游标
+
+想看当前游标：
+
+```bash
+node -e "console.log(require(process.env.APPDATA+'/qzone-skill/state.json').lastCursor)"
+```
+
+想重置（下次重新全量）：
+
+```bash
+node -e "const fs=require('fs'),p=process.env.APPDATA+'/qzone-skill/state.json',s=JSON.parse(fs.readFileSync(p));s.lastCursor='';fs.writeFileSync(p,JSON.stringify(s,null,2));"
+```
+
+---
+
 ## Windows 专有坑
 
 ### 计划任务会弹黑框

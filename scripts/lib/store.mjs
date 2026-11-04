@@ -157,11 +157,12 @@ export function coerce(raw, current) {
 /** 运行状态（去重 / 水位）。文件坏了就当空的重来，不让它挡住主流程 */
 export function loadState() {
   const { stateFile } = paths();
-  if (!existsSync(stateFile)) return { liked: {}, lastRunAt: null, lastSeenTs: 0 };
+  const empty = { liked: {}, lastRunAt: null, lastSeenTs: 0, lastCursor: '' };
+  if (!existsSync(stateFile)) return empty;
   try {
-    return { liked: {}, lastRunAt: null, lastSeenTs: 0, ...JSON.parse(readFileSync(stateFile, 'utf8')) };
+    return { ...empty, ...JSON.parse(readFileSync(stateFile, 'utf8')) };
   } catch {
-    return { liked: {}, lastRunAt: null, lastSeenTs: 0 };
+    return empty;
   }
 }
 

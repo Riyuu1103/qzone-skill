@@ -52,6 +52,10 @@ const HELP = `QQ 空间工具
   node scripts/qzone.mjs config           看全部配置
   node scripts/qzone.mjs config <键> <值>  改一项配置，键用点号，如 auto.like.maxPerRun
   node scripts/qzone.mjs feed             读好友动态
+  node scripts/qzone.mjs digest           摘要（按你赞过谁排序，最省 token）
+  node scripts/qzone.mjs digest --images  摘要并把首图下载到本地
+  node scripts/qzone.mjs learn            从你赞过的动态里学习口味
+  node scripts/qzone.mjs bench            测各输出格式的 token 占用
   node scripts/qzone.mjs like <动态id>     给一条动态点赞
   node scripts/qzone.mjs auto             跑一轮：读动态 + 按规则点赞
   node scripts/qzone.mjs on | off         一键开启 / 关闭自动刷
@@ -152,7 +156,10 @@ async function main() {
     case 'like':
     case 'auto':
     case 'watch':
-    case 'explore': {
+    case 'explore':
+    case 'digest':
+    case 'learn':
+    case 'bench': {
       // 这几个要开浏览器，延迟加载，保证 help / config 这类命令秒回
       const mod = await import('./lib/actions.mjs');
       return mod.run(command, { ...flags, _: positional }, { out, fail });

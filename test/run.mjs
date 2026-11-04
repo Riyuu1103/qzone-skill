@@ -134,6 +134,42 @@ test('resume 之后恢复', () => {
   assert.equal(isPaused(), false);
 });
 
+console.log('\n[6] 动态 id 校验（游标不能存错东西）');
+const { isFeedKey } = await import('../scripts/lib/actions.mjs');
+test('标准 24 位 hex 认作动态 id', () => assert.equal(isFeedKey('abcdef1234567890abcdef12'), true));
+test('页面位置标记不认', () => assert.equal(isFeedKey('403_2_123456789'), false));
+test('空串 / undefined 不认', () => {
+  assert.equal(isFeedKey(''), false);
+  assert.equal(isFeedKey(undefined), false);
+});
+test('太短的 hex 不认', () => assert.equal(isFeedKey('abcd'), false));
+
+console.log('\n[7] token 估算与打分');
+const { estimateTokens } = await import('../scripts/lib/bench.mjs');
+const { scoreItem } = await import('../scripts/lib/digest.mjs');
+test('纯中文按 1 字 1 token 估', () => assert.equal(estimateTokens('中文测试'), 4));
+test('英文按 3.6 字符 1 token 估（向下取整放宽）', () => {
+  const t = estimateTokens('abcdefghij');
+  assert.ok(t >= 2 && t <= 4, `实际 ${t}`);
+});
+test('空串是 0', () => assert.equal(estimateTokens(''), 0));
+test('作者权重会拉高分数', () => {
+  const item = { name: '示例人', text: '短', imgCount: 0 };
+  const plain = scoreItem(item, { authors: {} });
+  const fan = scoreItem(item, { authors: { 示例人: 8 } });
+  assert.ok(fan > plain, `常赞的应更高：${fan} vs ${plain}`);
+});
+test('带图加分', () => {
+  const base = { name: 'x', text: '短', imgCount: 0 };
+  const withImg = { ...base, imgCount: 3 };
+  assert.ok(scoreItem(withImg, {}) > scoreItem(base, {}));
+});
+test('作者权重有上限（不会一个人顶死全部）', () => {
+  const item = { name: 'x', text: '', imgCount: 0 };
+  const maxed = scoreItem(item, { authors: { x: 999999 } });
+  assert.ok(maxed <= 4.5, `上限失效：${maxed}`);
+});
+
 rmSync(sandbox, { recursive: true, force: true });
 
 console.log(`\n${failures.length ? '❌' : '✅'} 通过 ${passed} 项，失败 ${failures.length} 项\n`);

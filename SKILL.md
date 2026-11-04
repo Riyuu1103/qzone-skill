@@ -39,24 +39,45 @@ node scripts/qzone.mjs status
 
 ## 2. 读动态
 
+### 2.1 先看摘要（推荐，最省 token）
+
 ```bash
-node scripts/qzone.mjs feed --scrolls 2
+node scripts/qzone.mjs digest --images
 ```
 
-返回：
+返回短键 JSON：
 
 ```json
 {
   "ok": true,
-  "count": 12,
+  "total": 23,
+  "shown": 8,
+  "prefs": { "likedSamples": 14, "authors": 7 },
   "items": [
-    { "key": "abc123", "name": "张三", "text": "正文…", "time": "3小时前", "liked": false, "hasImage": true }
-  ],
-  "probe": { "cardCount": 12, "candidates": { "li.f-single": 12 } }
+    { "t": "12:33", "a": "示例同学", "x": "全世界最常光顾文史楼失物招领的人…", "n": 3, "s": 3.2, "k": "d98289a49a", "L": 1, "p": "C:\\...\\out\\img\\283e171576.webp" }
+  ]
 }
 ```
 
-- `key` 是这条动态的 id，点赞时用它
+字段：`t` 时间 · `a` 作者 · `x` 正文 · `n` 图片数 · `s` 分数 · `k` 短 id · `L` 你赞过 · `p` 本地图片路径。
+
+- **`p` 可以直接读图**（`read_image`），不用再去下载
+- `k` 只有 10 位，够用来点赞；要完整 id 用 `feed`
+- 默认按你的口味排序（作者权重来自 `learn`）
+
+想只看到上次之后的新内容，加 `--since`。
+
+**第一次用之前先跑一次 `learn`**，否则没有口味数据，排序等于随机。
+
+### 2.2 要原始数据才用 feed
+
+```bash
+node scripts/qzone.mjs feed --limit 25
+```
+
+返回完整字段（`key`/`name`/`text`/`time`/`liked`/`hasImage`/`imgCount`/`img`），token 大约是 digest 的 5～10 倍。
+
+- `key` 是完整动态 id，点赞时用它
 - `liked: true` = 用户自己已经赞过
 - `count` 是 0 且 `probe.cardCount` 也是 0 → 见 §7
 
@@ -181,8 +202,19 @@ node scripts/qzone.mjs feed        # 3. 能不能读到
 2. **不要读用户的浏览器 cookie / 密码库**。登录走扫码，这是设计上的硬边界。
 3. **不要绕过风控**。遇到验证码、滑块、"操作过于频繁"，停下来告诉用户，不要换 IP、不要改 UA 硬闯。
 4. **不要一次大量点赞**。默认参数是保守值，用户要调快必须先讲清后果。
-5. **登录态目录不要外发**：`%APPDATA%\qzone-skill\browser` 等同于用户账号。
+5. **登录态目录不要外发**：`%APPDATA%\qzone-skill\browser` 与 `session.json` 等同于用户账号。
 6. 这是**非官方用法**。用户问「会不会封号」时如实说：有风险，频率低风险小，但不保证。
+7. **单次最多读 23 条**（覆盖约 4 小时）。这是页面懒加载的上限，不是工具的问题。用户要更早的内容，如实说做不到。
+8. **读满 23 条约 67 秒**。用户催速度时，可以退到 `digest --limit 0`（只读首屏，约 15 秒，约 7 条）。
+
+### 8.1 省 token 的规矩
+
+`digest` 的输出只有 `feed` 的 10%（实测 336 vs 3526 tokens）。所以：
+
+- **默认用 `digest`**，需要完整字段（要点赞、要 id）才用 `feed`
+- 给用户念结果时**不要贴 JSON**，翻成人话
+- 用 `--same` 系列里没有的参数就别乱加，`--limit` 调大只会更慢更贵
+- `--images` 只在用户真的要看图时加，下载图片有网络开销
 
 ---
 

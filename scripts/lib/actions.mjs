@@ -14,6 +14,8 @@ import { ensureBrowser, closeBrowser } from './browser.mjs';
 import { newPage, goto, evaluate, screenshot } from './cdp.mjs';
 import { loadConfig, loadState, saveState, isPaused, paths } from './store.mjs';
 import { injectSession } from './session.mjs';
+import { learnFrom, buildDigest } from './digest.mjs';
+import { compareFormats } from './bench.mjs';
 
 const FEED_URL = (uin) => `https://user.qzone.qq.com/${uin}`;
 
@@ -79,9 +81,11 @@ const READ_SCRIPT = String.raw`(() => {
     const liked = likeBtn
       ? /item-on|_on|liked/.test(likeBtn.className || '') || (likeBtn.textContent || '').includes('取消赞')
       : false;
-    const hasImage = [...el.querySelectorAll('img')].some(
-      (img) => /\/photo\/|qpic\.cn|photo\.store/.test(img.src || ''),
-    );
+
+    // 正文图：qpic.cn（a1.qpic.cn 等）。头像是 qlogoN.store.qq.com，要排除掉
+    const imgs = [...el.querySelectorAll('img')]
+      .map((img) => img.src || '')
+      .filter((s) => /qpic\.cn|photo\.store/.test(s));
 
     out.push({
       key,
@@ -91,7 +95,9 @@ const READ_SCRIPT = String.raw`(() => {
       text: text.slice(0, 500),
       time: timeText,
       liked,
-      hasImage,
+      hasImage: imgs.length > 0,
+      imgCount: imgs.length,
+      imgs,
     });
   }
 
@@ -103,14 +109,51 @@ const READ_SCRIPT = String.raw`(() => {
 })()`;
 
 /** 读当前页面的动态（不做点赞，只读） */
-export async function readFeed({ scrolls = 2 } = {}) {
+/**
+ * 读当前页面的动态（不做点赞，只读）。
+ *
+ * 关于「能读多少条」：空间是懒加载的，每滚到底一次只多渲染 4 条左右。
+ * 所以想多读就得多滚几次；这里用「等卡片数真的涨了才继续」的方式推进，
+ * 而不是固定 sleep —— 固定等待会误判成「到底了」而提前收工（踩过）。
+ *
+ * @param {object} opts
+ * @param {number} opts.limit 目标条数（0 = 只读首屏，不滚）
+ * @param {number} opts.maxScrolls 最多滚几次（安全上限，防止无限滚）
+ * @param {number} opts.perScrollMs 每次滚动后最多等多久加载
+ */
+export async function readFeed({ limit = 0, maxScrolls = 14, perScrollMs = 6500 } = {}) {
   return withPage(async ({ cdp, sessionId }) => {
-    // 首屏是异步渲染的，先给它一点时间，否则会读到 0 条或只读到一半
+    const countCards = () =>
+      evaluate(cdp, sessionId, `document.querySelectorAll('li.f-single').length`).catch(() => 0);
+
     await sleep(2000);
-    for (let i = 0; i < scrolls; i++) {
+    let count = await countCards();
+    let stall = 0;
+
+    for (let i = 0; i < maxScrolls; i++) {
+      if (limit > 0 && count >= limit) break;
+
       await evaluate(cdp, sessionId, 'window.scrollTo(0, document.body.scrollHeight); true').catch(() => {});
-      await sleep(2000);
+
+      // 轮询等新卡片渲染出来，而不是固定睡一段时间
+      const deadline = Date.now() + perScrollMs;
+      let next = count;
+      while (Date.now() < deadline) {
+        await sleep(500);
+        next = await countCards();
+        if (next > count) break;
+      }
+
+      if (next > count) {
+        count = next;
+        stall = 0;
+      } else {
+        stall++;
+        // 连续两次滚到底都不再增加，才认为是真到底了
+        if (stall >= 2) break;
+      }
     }
+
     return evaluate(cdp, sessionId, READ_SCRIPT);
   });
 }
@@ -266,12 +309,12 @@ export function shouldLike(item, likeCfg, { likedKeys = {} } = {}) {
 }
 
 /** 跑一轮：读动态 → 按规则挑 → 点赞 → 记状态 → 返回摘要 */
-export async function runAuto({ dryRun = false, scrolls = 2 } = {}) {
+export async function runAuto({ dryRun = false, limit = 30 } = {}) {
   const cfg = loadConfig();
   const state = loadState();
   const likeCfg = cfg.auto.like;
 
-  const feed = await readFeed({ scrolls });
+  const feed = await readFeed({ limit });
   const decided = feed.items.map((item) => ({ item, ...shouldLike(item, likeCfg, { likedKeys: state.liked }) }));
   const picked = decided.filter((d) => d.like).slice(0, likeCfg.maxPerRun ?? 10);
 
@@ -369,13 +412,78 @@ export async function watch({ intervalMinutes } = {}) {
   }
 }
 
+/**
+ * 判断一个 key 是不是真正的动态 id。
+ * 动态 id 是 24 位十六进制（如 abcdef1234567890abcdef12）；
+ * 页面里还有些别的 data-key（比如 403_2_123456789 这种位置标记），不能当游标。
+ */
+export function isFeedKey(key) {
+  return typeof key === 'string' && /^[0-9a-f]{16,}$/i.test(key);
+}
+
+/** 从一批动态里挑出最新的那条真动态的 key */
+function pickCursorKey(items) {
+  for (const it of items) if (isFeedKey(it.key)) return it.key;
+  return '';
+}
+
+/**
+ * 只读增量：从上次读到的位置之后开始。
+ *
+ * 定位方式：把上次记住的 key 当成锚点，在这次的列表里找到它，
+ * 它之前的（更新的）就是新增的。找不到说明那条已经被挤出列表
+ * （间隔太久），这时返回全部并标记 cursorLost，由调用方决定怎么办。
+ */
+export async function readNew({ limit = 30 } = {}) {
+  const state = loadState();
+  const r = await readFeed({ limit });
+  const cursor = state.lastCursor || '';
+
+  let items = r.items;
+  let cursorFound = false;
+  if (cursor) {
+    const idx = r.items.findIndex((it) => it.key === cursor);
+    if (idx >= 0) {
+      cursorFound = true;
+      items = r.items.slice(0, idx);
+    }
+  }
+
+  // 只推进游标，不在这里落盘（落盘由调用方决定，避免读取动作产生副作用）
+  const newest = pickCursorKey(r.items);
+
+  return {
+    items,
+    total: r.items.length,
+    freshCount: items.length,
+    cursor,
+    cursorFound,
+    nextCursor: newest || cursor,
+    probe: r.probe,
+  };
+}
+
+/** 把游标推进到最新（读取类命令里显式调用） */
+export function advanceCursor(nextCursor) {
+  if (!nextCursor) return;
+  const state = loadState();
+  if (state.lastCursor === nextCursor) return;
+  state.lastCursor = nextCursor;
+  saveState(state);
+}
+
 /** CLI 分发 */
 export async function run(command, flags, io) {
   try {
     switch (command) {
       case 'feed': {
-        const r = await readFeed({ scrolls: Number(flags.scrolls ?? 2) });
-        return io.out({ ok: true, count: r.items.length, items: r.items, probe: r.probe }, flags);
+        const r = await readFeed({ limit: Number(flags.limit ?? 0) });
+        // 默认不吐图片 URL：一条能有好几百字符，纯属烧 token。
+        // 要图就用 digest（带本地路径）或加 --images。
+        const items = flags.images
+          ? r.items
+          : r.items.map(({ imgs, ...rest }) => ({ ...rest, img: imgs[0] || undefined }));
+        return io.out({ ok: true, count: items.length, items, probe: r.probe }, flags);
       }
       case 'like': {
         const keys = flags._ ?? [];
@@ -384,11 +492,45 @@ export async function run(command, flags, io) {
         return io.out({ ok: true, ...r }, flags);
       }
       case 'auto': {
-        const r = await runAuto({ dryRun: Boolean(flags['dry-run']) });
+        const r = await runAuto({ dryRun: Boolean(flags['dry-run']), limit: Number(flags.limit ?? 30) });
         return io.out(r, flags);
       }
       case 'watch':
         return watch({ intervalMinutes: flags.interval ? Number(flags.interval) : undefined });
+      case 'digest': {
+        const r = await readFeed({ limit: Number(flags.limit ?? 40) });
+        const state = loadState();
+        let items = r.items;
+        let skippedOld = 0;
+        if (flags.since && state.lastCursor) {
+          const idx = r.items.findIndex((it) => it.key === state.lastCursor);
+          if (idx >= 0) {
+            skippedOld = r.items.length - idx;
+            items = r.items.slice(0, idx);
+          }
+        }
+        const d = await buildDigest(items, {
+          top: Number(flags.top ?? 8),
+          withImages: Boolean(flags.images),
+        });
+        const newest = pickCursorKey(r.items);
+        advanceCursor(newest);
+        return io.out({ ...d, read: r.items.length, skippedOld }, flags);
+      }
+
+      case 'learn': {
+        const r = await readFeed({ limit: Number(flags.limit ?? 60) });
+        const info = learnFrom(r.items);
+        return io.out({ ok: true, ...info, read: r.items.length }, flags);
+      }
+
+      case 'bench': {
+        const r = await readFeed({ limit: Number(flags.limit ?? 30) });
+        const rawFeedJson = JSON.stringify({ ok: true, count: r.items.length, items: r.items });
+        const d = await buildDigest(r.items, { top: Number(flags.top ?? 8) });
+        return io.out(compareFormats(r.items, d, rawFeedJson), flags);
+      }
+
       case 'explore': {
         const r = await explore({ pageUrl: flags.url });
         return io.out({ ok: true, ...r }, flags);
