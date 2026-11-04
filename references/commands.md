@@ -107,7 +107,7 @@ node scripts/qzone.mjs feed [--limit 25] [--images]
     {
       "key": "abcdef1234567890abcdef12",
       "tid": "abcdef1234567890abcdef12",
-      "cardId": "fct_123456789_311_5_1700000000_0_1",
+      "cardId": "fct_123456789_311_5_1000000000_0_1",
       "name": "张三",
       "text": "正文（最多 500 字）",
       "time": "12:45",
