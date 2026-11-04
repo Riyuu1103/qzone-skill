@@ -146,29 +146,57 @@ test('太短的 hex 不认', () => assert.equal(isFeedKey('abcd'), false));
 
 console.log('\n[7] token 估算与打分');
 const { estimateTokens } = await import('../scripts/lib/bench.mjs');
-const { scoreItem } = await import('../scripts/lib/digest.mjs');
+const { scoreItem, classify, typeLabel } = await import('../scripts/lib/digest.mjs');
+
+const emptyPrefs = { authors: {}, types: {}, globalSeen: 0, globalLiked: 0 };
+const scoreOf = (item, prefs = emptyPrefs) => scoreItem(item, prefs).score;
+
 test('纯中文按 1 字 1 token 估', () => assert.equal(estimateTokens('中文测试'), 4));
 test('英文按 3.6 字符 1 token 估（向下取整放宽）', () => {
   const t = estimateTokens('abcdefghij');
   assert.ok(t >= 2 && t <= 4, `实际 ${t}`);
 });
 test('空串是 0', () => assert.equal(estimateTokens(''), 0));
-test('作者权重会拉高分数', () => {
+
+test('作者偏好率会拉高分数', () => {
   const item = { name: '示例人', text: '短', imgCount: 0 };
-  const plain = scoreItem(item, { authors: {} });
-  const fan = scoreItem(item, { authors: { 示例人: 8 } });
+  const plain = scoreOf(item);
+  const fan = scoreOf(item, { authors: { 示例人: { seen: 4, liked: 4 } }, types: {}, globalSeen: 10, globalLiked: 5 });
   assert.ok(fan > plain, `常赞的应更高：${fan} vs ${plain}`);
 });
+
+test('发得多但一次没赞过的人，分数低于陌生人', () => {
+  const prefs = { authors: { 刷屏: { seen: 20, liked: 0 } }, types: {}, globalSeen: 40, globalLiked: 10 };
+  const spammer = scoreOf({ name: '刷屏', text: '短', imgCount: 0 }, prefs);
+  const stranger = scoreOf({ name: '陌生人', text: '短', imgCount: 0 }, prefs);
+  assert.ok(spammer < stranger, `刷屏狂应低于陌生人：${spammer} vs ${stranger}`);
+});
+
+test('类型偏好也会影响分数', () => {
+  const item = { name: 'x', text: '今天吃了拉面', imgCount: 0 };
+  const noType = scoreOf(item);
+  const loveLife = scoreOf(item, { authors: {}, types: { life: { seen: 3, liked: 3 } }, globalSeen: 10, globalLiked: 3 });
+  assert.ok(loveLife > noType, `爱看生活记录应更高：${loveLife} vs ${noType}`);
+});
+
 test('带图加分', () => {
   const base = { name: 'x', text: '短', imgCount: 0 };
   const withImg = { ...base, imgCount: 3 };
-  assert.ok(scoreItem(withImg, {}) > scoreItem(base, {}));
+  assert.ok(scoreOf(withImg) > scoreOf(base));
 });
-test('作者权重有上限（不会一个人顶死全部）', () => {
-  const item = { name: 'x', text: '', imgCount: 0 };
-  const maxed = scoreItem(item, { authors: { x: 999999 } });
-  assert.ok(maxed <= 4.5, `上限失效：${maxed}`);
-});
+
+console.log('\n[8] 内容分类');
+test('扩列条', () => assert.equal(classify({ text: '来扩列！互关一下', imgCount: 0 }), 'recruit'));
+test('画画记录', () => assert.equal(classify({ text: '今天画完了这张线稿', imgCount: 1 }), 'art'));
+test('学习技术', () => assert.equal(classify({ text: '复习一下常微分方程的定理', imgCount: 0 }), 'study'));
+test('情绪吐槽', () => assert.equal(classify({ text: '好烦啊不想动', imgCount: 0 }), 'mood'));
+test('梗图段子', () => assert.equal(classify({ text: '哈哈哈哈笑死我了', imgCount: 1 }), 'meme'));
+test('生活记录', () => assert.equal(classify({ text: '今天食堂的饭还行', imgCount: 0 }), 'life'));
+test('三张以上图算多图', () => assert.equal(classify({ text: '', imgCount: 4 }), 'image'));
+test('长文兜底', () =>
+  assert.equal(classify({ text: 'x'.repeat(200), imgCount: 0 }), 'longtext'));
+test('什么都没有算 other', () => assert.equal(classify({ text: '嗯', imgCount: 0 }), 'other'));
+test('类型有中文名', () => assert.equal(typeLabel('art'), '画画记录'));
 
 rmSync(sandbox, { recursive: true, force: true });
 

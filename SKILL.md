@@ -6,6 +6,28 @@
 
 ---
 
+## 0. 第一次给某个用户用时：先问这四个问题
+
+**不要自顾自跑起来。** 用户的偏好差异很大，默认值只是兜底。第一次启用时先问清楚：
+
+| 问题 | 对应配置 | 不填的默认 |
+|---|---|---|
+| 多久看一次？ | `auto.intervalMinutes` / 定时任务间隔 | 30 分钟 |
+| 一次看多少条？ | `digest.top` | 8 条（最多 23） |
+| 想看哪几类内容？ | `digest.types` / 打分权重 | 全部类型 |
+| 要不要顺手点赞？ | `auto.enabled` | 关 |
+
+问完再动手。用户说「随便，按默认来」就按默认，不要反复追问。
+
+**同时要主动说明做不到什么**（详见 §8），尤其是：
+
+- 只能看到当前列表里的（约 23 条 / 几小时），**看不到更早的**
+- 不发说说、不评论、不加好友
+- 靠定时查看，**不是实时推送**
+- 非官方用法，有账号风险，改版会失效
+
+---
+
 ## 0. 先判断该不该用
 
 | 用户说的话 | 该做什么 |
@@ -50,24 +72,34 @@ node scripts/qzone.mjs digest --images
 ```json
 {
   "ok": true,
-  "total": 23,
-  "shown": 8,
-  "prefs": { "likedSamples": 14, "authors": 7 },
+  "total": 23, "pool": 18, "shown": 8,
+  "prefs": { "seen": 23, "liked": 11, "authors": 5 },
+  "more": { "remain": 10, "hint": "还有 10 条没显示，加 --top 18 可以看更多" },
+  "typeStats": { "mood": { "seen": 2, "liked": 2 }, "other": { "seen": 7, "liked": 7 } },
   "items": [
-    { "t": "12:33", "a": "示例同学", "x": "全世界最常光顾文史楼失物招领的人…", "n": 3, "s": 3.2, "k": "d98289a49a", "L": 1, "p": "C:\\...\\out\\img\\283e171576.webp" }
+    { "t": "12:33", "a": "示例同学", "c": "image", "x": "正文前 80 字…", "n": 3, "s": 3.2, "k": "d98289a49a", "L": 1, "p": "C:\\...\\out\\img\\283e171576.webp" }
   ]
 }
 ```
 
-字段：`t` 时间 · `a` 作者 · `x` 正文 · `n` 图片数 · `s` 分数 · `k` 短 id · `L` 你赞过 · `p` 本地图片路径。
+字段：`t` 时间 · `a` 作者 · `c` 类型 · `x` 正文 · `n` 图片数 · `s` 分数 · `k` 短 id · `L` 你赞过 · `p` 本地图片路径。
 
 - **`p` 可以直接读图**（`read_image`），不用再去下载
 - `k` 只有 10 位，够用来点赞；要完整 id 用 `feed`
-- 默认按你的口味排序（作者权重来自 `learn`）
+- `more` 非空时，**问用户要不要看更多**，别自己闭嘴
 
-想只看到上次之后的新内容，加 `--since`。
+常用变体：
 
-**第一次用之前先跑一次 `learn`**，否则没有口味数据，排序等于随机。
+```bash
+node scripts/qzone.mjs digest --since              # 只看上次之后的新内容
+node scripts/qzone.mjs digest --top 15             # 多给几条
+node scripts/qzone.mjs digest --types art,life     # 只看画画和生活记录
+node scripts/qzone.mjs digest --images             # 附图片（自动清理旧图）
+```
+
+`--types` 可选值：`recruit` 扩列条 · `art` 画画 · `study` 学习技术 · `music` 音乐 · `mood` 情绪吐槽 · `meme` 梗图段子 · `life` 生活记录 · `image` 多图 · `longtext` 长文 · `other` 其他。
+
+**第一次用之前先跑一次 `learn`**，否则没有口味数据，排序等于按「有没有图 + 文字长短」猜。
 
 ### 2.2 要原始数据才用 feed
 
@@ -129,6 +161,20 @@ node scripts/qzone.mjs auto --dry-run
 | `pause` / `resume` | 紧急刹车（临时文件，不改配置） | 手刹 |
 | `service install` | 系统定时任务 | 定速巡航 |
 | `watch` | 前台常驻循环 | 司机一直踩着油门 |
+| `auto --only-new` | 只赞游标之后的新动态 | 秒赞模式 |
+
+### 想接近「秒赞」
+
+`--only-new` 只处理比上次更新的动态，老的一条不碰。配合更短的定时任务间隔就能接近秒赞：
+
+```bash
+node scripts/qzone.mjs config auto.intervalMinutes 5
+node scripts/qzone.mjs service install --interval 5
+```
+
+**先跟用户讲清楚代价**：间隔越短，请求越频繁，被判定异常的概率越高。默认 30 分钟是保守值。
+
+> 有些人自己开「秒赞」插件，会把你的好友动态全部点赞。这类动态的 `L` 字段本来就是 1，`auto` 会自动跳过，不会重复赞 —— 不用额外处理。
 
 典型开启流程：
 

@@ -14,7 +14,7 @@ import { ensureBrowser, closeBrowser } from './browser.mjs';
 import { newPage, goto, evaluate, screenshot } from './cdp.mjs';
 import { loadConfig, loadState, saveState, isPaused, paths } from './store.mjs';
 import { injectSession } from './session.mjs';
-import { learnFrom, buildDigest } from './digest.mjs';
+import { learnFrom, buildDigest, cleanImages, imageStorage, classify } from './digest.mjs';
 import { compareFormats } from './bench.mjs';
 
 const FEED_URL = (uin) => `https://user.qzone.qq.com/${uin}`;
@@ -76,8 +76,10 @@ const READ_SCRIPT = String.raw`(() => {
     }
     if (!text) text = (el.querySelector('.f-info')?.innerText || '').trim();
 
-    const likeBtn = el.querySelector('[class*="like_btn"]');
-    // 好友动态的已赞标记是 class 里的 item-on（不是 _on），说说页则是文案变成「取消赞」
+    // 一个卡片里可能有多个 like_btn（隐藏模板 + 可见按钮），要取可见的那个，
+    // 否则会读到隐藏模板的 class，永远判成「没赞过」。
+    const btns = [...el.querySelectorAll('[class*="like_btn"]')];
+    const likeBtn = btns.find((b) => b.offsetParent !== null) || btns[0];
     const liked = likeBtn
       ? /item-on|_on|liked/.test(likeBtn.className || '') || (likeBtn.textContent || '').includes('取消赞')
       : false;
@@ -308,14 +310,25 @@ export function shouldLike(item, likeCfg, { likedKeys = {} } = {}) {
   return { like: true, why: 'ok' };
 }
 
-/** 跑一轮：读动态 → 按规则挑 → 点赞 → 记状态 → 返回摘要 */
-export async function runAuto({ dryRun = false, limit = 30 } = {}) {
+/** 跑一轮：读动态 → 按规则挑 → 点赞 → 记状态 → 返回摘要
+ * @param {object} opts
+ * @param {boolean} opts.onlyNew 只处理游标之后的新动态（配合高频轮询 = 接近秒赞）
+ */
+export async function runAuto({ dryRun = false, limit = 30, onlyNew = false } = {}) {
   const cfg = loadConfig();
   const state = loadState();
   const likeCfg = cfg.auto.like;
 
   const feed = await readFeed({ limit });
-  const decided = feed.items.map((item) => ({ item, ...shouldLike(item, likeCfg, { likedKeys: state.liked }) }));
+
+  // 秒赞模式：只看比上次更新的那些，老的一条不碰
+  let pool = feed.items;
+  if (onlyNew && state.lastCursor) {
+    const idx = feed.items.findIndex((it) => it.key === state.lastCursor);
+    if (idx >= 0) pool = feed.items.slice(0, idx);
+  }
+
+  const decided = pool.map((item) => ({ item, ...shouldLike(item, likeCfg, { likedKeys: state.liked }) }));
   const picked = decided.filter((d) => d.like).slice(0, likeCfg.maxPerRun ?? 10);
 
   let likeResults = [];
@@ -342,11 +355,15 @@ export async function runAuto({ dryRun = false, limit = 30 } = {}) {
     writeFileSync(join(outDir, `feed-${Date.now()}.json`), JSON.stringify(feed, null, 2), 'utf8');
   }
   saveState(state);
+  // 推进增量游标，下次 --only-new 才知道从哪算「新」
+  advanceCursor(pickCursorKey(feed.items));
 
   return {
     ok: true,
     dryRun,
+    onlyNew,
     total: feed.items.length,
+    pool: pool.length,
     picked: picked.length,
     // dry-run 时把「本来会赞哪些」列出来，方便先看再决定
     willLike: dryRun
@@ -492,7 +509,11 @@ export async function run(command, flags, io) {
         return io.out({ ok: true, ...r }, flags);
       }
       case 'auto': {
-        const r = await runAuto({ dryRun: Boolean(flags['dry-run']), limit: Number(flags.limit ?? 30) });
+        const r = await runAuto({
+          dryRun: Boolean(flags['dry-run']),
+          limit: Number(flags.limit ?? 30),
+          onlyNew: Boolean(flags['only-new']),
+        });
         return io.out(r, flags);
       }
       case 'watch':
@@ -512,10 +533,20 @@ export async function run(command, flags, io) {
         const d = await buildDigest(items, {
           top: Number(flags.top ?? 8),
           withImages: Boolean(flags.images),
+          onlyTypes: flags.types ? String(flags.types).split(',').map((s) => s.trim()) : undefined,
+          cleanup: flags['no-cleanup'] ? false : undefined,
         });
         const newest = pickCursorKey(r.items);
         advanceCursor(newest);
         return io.out({ ...d, read: r.items.length, skippedOld }, flags);
+      }
+
+      case 'clean': {
+        const cap = cleanImages({
+          keepDays: Number(flags.days ?? 7),
+          maxFiles: Number(flags.max ?? 300),
+        });
+        return io.out({ ok: true, ...cap, ...imageStorage() }, flags);
       }
 
       case 'learn': {

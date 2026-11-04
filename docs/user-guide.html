@@ -2,296 +2,210 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>qzone-skill 使用指南</title>
+<title>让 AI 帮你刷 QQ 空间 · 使用指南</title>
 <style>
   @page { size: A4; margin: 18mm 16mm 16mm 16mm; }
   * { box-sizing: border-box; }
   body {
     font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;
-    font-size: 10.5pt; line-height: 1.75; color: #1c1c1e; margin: 0;
+    font-size: 10.5pt; line-height: 1.78; color: #1c1c1e; margin: 0;
   }
   h1 { font-size: 22pt; margin: 0 0 6px; letter-spacing: -0.3px; }
-  .sub { color: #6b7280; font-size: 10pt; margin-bottom: 26px; }
+  .sub { color: #6b7280; font-size: 10pt; margin-bottom: 24px; }
   h2 {
     font-size: 14pt; margin: 26px 0 10px; padding-bottom: 6px;
     border-bottom: 2px solid #e5e7eb; page-break-after: avoid;
   }
-  h3 { font-size: 11.5pt; margin: 18px 0 8px; color: #111827; page-break-after: avoid; }
+  h3 { font-size: 11.5pt; margin: 16px 0 8px; color: #111827; page-break-after: avoid; }
   p { margin: 8px 0; }
   ul, ol { margin: 8px 0; padding-left: 22px; }
   li { margin: 4px 0; }
-  code {
-    font-family: "Cascadia Mono", Consolas, monospace; font-size: 9.5pt;
-    background: #f3f4f6; padding: 1px 5px; border-radius: 3px; color: #b91c1c;
+  .say {
+    background: #eff6ff; border-left: 3px solid #3b82f6; padding: 9px 14px;
+    margin: 8px 0; border-radius: 0 4px 4px 0; font-size: 10pt;
   }
-  pre {
-    background: #f8f9fb; border-left: 3px solid #4a7cff; padding: 10px 14px;
-    font-family: "Cascadia Mono", Consolas, monospace; font-size: 9pt; line-height: 1.6;
-    white-space: pre-wrap; word-break: break-all; margin: 10px 0; border-radius: 0 4px 4px 0;
+  .say::before { content: "你："; color: #1d4ed8; font-weight: 700; }
+  .ai {
+    background: #f9fafb; border-left: 3px solid #9ca3af; padding: 9px 14px;
+    margin: 8px 0; border-radius: 0 4px 4px 0; font-size: 9.6pt; color: #374151;
   }
-  pre code { background: none; padding: 0; color: #1f2937; }
-  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 9.5pt; }
-  th, td { border: 1px solid #e5e7eb; padding: 7px 10px; text-align: left; vertical-align: top; }
+  .ai::before { content: "AI："; color: #6b7280; font-weight: 700; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 9.6pt; }
+  th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
   th { background: #f9fafb; font-weight: 600; }
-  .note {
-    background: #eff6ff; border-left: 3px solid #3b82f6; padding: 10px 14px;
-    margin: 12px 0; font-size: 9.8pt; border-radius: 0 4px 4px 0;
-  }
-  .warn {
-    background: #fff7ed; border-left: 3px solid #f97316; padding: 10px 14px;
-    margin: 12px 0; font-size: 9.8pt; border-radius: 0 4px 4px 0;
-  }
-  .step { display: flex; gap: 10px; margin: 10px 0; }
-  .step-num {
-    flex: 0 0 22px; height: 22px; border-radius: 50%; background: #4a7cff; color: #fff;
-    font-size: 9pt; text-align: center; line-height: 22px; font-weight: 700;
-  }
+  .note { background: #eff6ff; border-left: 3px solid #3b82f6; padding: 10px 14px; margin: 12px 0; font-size: 9.8pt; border-radius: 0 4px 4px 0; }
+  .warn { background: #fff7ed; border-left: 3px solid #f97316; padding: 10px 14px; margin: 12px 0; font-size: 9.8pt; border-radius: 0 4px 4px 0; }
+  .bad { background: #fef2f2; border-left: 3px solid #ef4444; padding: 10px 14px; margin: 12px 0; font-size: 9.8pt; border-radius: 0 4px 4px 0; }
   .muted { color: #6b7280; font-size: 9.5pt; }
-  .kv { font-size: 9.8pt; }
-  .pb { page-break-before: always; }
 </style>
 </head>
 <body>
 
-<h1>刷 QQ 空间</h1>
-<div class="sub">使用指南 · qzone-skill v1.0 · 让 AI 帮你读动态、点赞，全程不弹窗口</div>
+<h1>让 AI 帮你刷 QQ 空间</h1>
+<div class="sub">使用指南 · 你不需要懂任何命令，会说话就行</div>
 
-<h2>一、这个东西是干什么的</h2>
+<h2>一、这页文档是给谁的</h2>
 
-<p>它是一个小工具，帮你在 QQ 空间里做两件事：</p>
-<ul>
-  <li><strong>读</strong>——把好友最近发的动态整理成一份清单（谁发的、说了什么、多久前、有没有图）</li>
-  <li><strong>赞</strong>——给指定的动态点赞，或者按你定的规则自动赞</li>
-</ul>
+<p>给<strong>不写代码</strong>的人。</p>
 
-<p>整个过程用的是<strong>无窗口的浏览器</strong>：你看不到任何窗口弹出来，它就悄悄跑完了。</p>
-
-<h3>它不做这些</h3>
-<ul>
-  <li>不自动评论、不自动发说说、不加好友</li>
-  <li>不保存你的 QQ 密码（登录只走手机扫码）</li>
-  <li>不上传任何数据（所有请求都是浏览器直接连腾讯）</li>
-</ul>
-
-<h2>二、准备</h2>
-
-<table>
-  <tr><th style="width:130px">需要</th><th>说明</th></tr>
-  <tr><td>电脑</td><td>Windows / macOS / Linux 都行</td></tr>
-  <tr><td>Node.js 22+</td><td>在命令行输入 <code>node -v</code> 能看到版本号就说明装了</td></tr>
-  <tr><td>浏览器</td><td>Windows 用系统自带的 Edge 即可；其他系统需要 Chrome</td></tr>
-  <tr><td>手机 QQ</td><td>只在第一次登录时用一次</td></tr>
-</table>
+<p>这个工具的能力是被人装到某个 AI 助手身上的（DeepSeek Harness、Claude、或者别的能跑工具的平台）。装好之后，你<strong>只需要用平时说话的方式告诉它你想要什么</strong>，它自己去干活。</p>
 
 <div class="note">
-<strong>不会用命令行？</strong>没关系，整个流程只有几条命令，下面每条都写好了，复制粘贴即可。在文件夹空白处按住 Shift + 右键，选「在此处打开 PowerShell 窗口」，就有一个能粘贴命令的地方了。
+<strong>你完全不需要知道</strong>：命令行、配置文件的路径、cookie、浏览器调试端口。<br>
+<strong>你只需要知道</strong>：怎么把你的想法说清楚，以及它做不到什么（第二节列了）。
 </div>
 
-<h2>三、第一步：登录（只需要做一次）</h2>
+<h2>二、它做不到什么（这一段最重要）</h2>
 
-<div class="step"><div class="step-num">1</div><div>
-<p>在 <code>D:\qzone-skill</code> 这个文件夹里，跑：</p>
-<pre><code>node scripts/qzone.mjs login</code></pre>
-</div></div>
-
-<div class="step"><div class="step-num">2</div><div>
-<p>它会等 3 分钟，等着你扫码。同时把二维码存成一张图片，路径类似：</p>
-<pre><code>C:\Users\你的用户名\AppData\Roaming\qzone-skill\out\login-qr.png</code></pre>
-<p>打开这张图片，用<strong>手机 QQ</strong> 扫一下，手机上再点「确认登录」。</p>
-</div></div>
-
-<div class="step"><div class="step-num">3</div><div>
-<p>看到 <code>"ok": true</code> 就成功了。登录状态会存在电脑上，以后不用再扫。</p>
-<pre><code>{"ok": true, "uin": "123456789", "nickname": "你的昵称", "already": false}</code></pre>
-</div></div>
-
-<div class="warn">
-<strong>二维码过期了怎么办？</strong>重新跑一遍 <code>login</code> 就行。它自己也会每 25 秒重新截一次图，过期前扫都有效。
-</div>
-
-<h2>四、第二步：看看有什么动态</h2>
-
-<pre><code>node scripts/qzone.mjs feed --pretty</code></pre>
-
-<p>会输出一份清单，长这样：</p>
-
-<pre><code>{
-  "ok": true,
-  "count": 12,
-  "items": [
-    {
-      "key": "abc123",
-      "name": "张三",
-      "text": "今天去看了海，风很大但很舒服",
-      "time": "3小时前",
-      "liked": false,
-      "hasImage": true
-    }
-  ]
-}</code></pre>
+<p>你的 AI 在被问到"你能不能帮我刷空间"时，<strong>应该主动告诉你</strong>下面这些边界。如果它没说，你可以直接问它。</p>
 
 <table>
-  <tr><th style="width:110px">字段</th><th>意思</th></tr>
-  <tr><td><code>key</code></td><td>这条动态的编号，点赞时要用它</td></tr>
-  <tr><td><code>name</code></td><td>谁发的</td></tr>
-  <tr><td><code>text</code></td><td>正文（太长会截断到 500 字）</td></tr>
-  <tr><td><code>time</code></td><td>什么时候发的，是空间显示的原始文案</td></tr>
-  <tr><td><code>liked</code></td><td>你是不是已经赞过了</td></tr>
-  <tr><td><code>hasImage</code></td><td>带不带图</td></tr>
+  <tr><th style="width:190px">做不到</th><th>原因 / 你该怎么说</th></tr>
+  <tr>
+    <td>不能替你发说说、评论、加好友</td>
+    <td>这个工具只做「看」和「点赞」两件事。要发内容，自己去手机或网页发。</td>
+  </tr>
+  <tr>
+    <td>不能看很久以前的动态</td>
+    <td>只能看到当前动态列表里有的，大约最近 20 来条、几个小时。想看昨天的，做不到。</td>
+  </tr>
+  <tr>
+    <td>不能实时推送</td>
+    <td>它靠定时去"看"一次，不是消息一出现就弹给你。想让它在乎及时，就让它把频率调高。</td>
+  </tr>
+  <tr>
+    <td>第一次要你亲自扫码</td>
+    <td>用手机 QQ 扫一次，之后几个月都不用再扫。它不能也不该问你要密码。</td>
+  </tr>
+  <tr>
+    <td>不保证不受平台限制</td>
+    <td>这是模拟人点网页的非官方用法。频率低风险小，但没法保证绝对安全。</td>
+  </tr>
+  <tr>
+    <td>可能过一段时间就失灵</td>
+    <td>QQ 空间页面改版后要重新适配。到时候它会明确告诉你"读不到了"，不会假装成功。</td>
+  </tr>
 </table>
 
-<p>想多看几条就把 <code>--limit</code> 调大，比如 <code>feed --limit 25</code>。每多读一点就要多滚屏，读满大约 23 条、1 分钟。</p>
+<div class="warn">
+<strong>如果它跟你说"可以自动发说说 / 可以评论 / 可以看历史"—— 那是它在瞎说。</strong>
+你可以把这一段发给它，让它按边界来。
+</div>
 
-<h3>更省事的用法：摘要</h3>
+<h2>三、第一次用：它会问你四个问题</h2>
 
-<p><code>feed</code> 会把所有字段都吐出来，信息全但啰嗦。日常更推荐用 <strong>摘要</strong>：</p>
+<p>好的做法是：你第一次说"帮我刷 QQ 空间"时，它先问你几个问题，把你想要的定下来，而不是自顾自跑起来。</p>
 
-<pre><code>node scripts/qzone.mjs learn            # 先学一次你的口味
-node scripts/qzone.mjs digest --images  # 看摘要，顺带把配图下到本地
-</code></pre>
+<div class="say">帮我弄一下 QQ 空间，让它能帮我看看有什么值得看的。</div>
+<div class="ai">
+好的，先确认几件事，然后我去弄：<br>
+① <strong>多久看一次</strong>？（30 分钟 / 1 小时 / 只在我说的时候看）<br>
+② <strong>一次看多少条</strong>？（默认 8 条，最多 23 条）<br>
+③ <strong>想看哪类内容</strong>？（画画、生活记录、梗图、学习、音乐、情绪吐槽，可以选几个）<br>
+④ <strong>要不要顺便自动点赞</strong>？（默认只看看，不动手）
+</div>
 
-<p><code>digest</code> 做的事：</p>
-<ol>
-  <li>读一遍好友动态</li>
-  <li>按<strong>你赞过谁</strong>给每条打分 —— 你常赞的人，内容排前面</li>
-  <li>只给你最值得看的 8 条（可以 <code>--top 15</code> 改）</li>
-  <li>带图的会把第一张图下载下来，直接能看</li>
-</ol>
+<p>这四个问题对应它之后的行为。<strong>你可以随时改</strong>，不用重新回答一遍。</p>
+
+<h3>怎么回答都行</h3>
+
+<div class="say">半小时看一次，一次给我十条左右，主要想看画画和生活记录，点赞先不要。</div>
+<div class="say">随便，先按默认来，我自己会看情况调。</div>
+<div class="say">一天看两次就行，早上一次晚上一次，别点赞。</div>
+
+<h2>四、之后日常怎么用</h2>
+
+<p>装好之后，你只要说一句话。下面是最常用的几种说法和它对应的动作：</p>
+
+<table>
+  <tr><th style="width:250px">你可以这样说</th><th>它会做什么</th></tr>
+  <tr><td>看看空间有什么</td><td>读一遍动态，挑出最值得看的几条给你，说明谁发的、说了什么、多久前</td></tr>
+  <tr><td>有没有新东西</td><td>只给你上次之后的新内容，不重复念旧的</td></tr>
+  <tr><td>把图也发我看看</td><td>把那几条的配图下载下来给你看</td></tr>
+  <tr><td>多给几条</td><td>把摘要从 8 条扩到你说的数量（上限 23）</td></tr>
+  <tr><td>我最近在忙，先停几天</td><td>暂停，等你说恢复再继续</td></tr>
+  <tr><td>帮我点赞 / 别点赞了</td><td>打开或关闭自动点赞</td></tr>
+  <tr><td>只给我看看画画的内容</td><td>按内容类型筛选</td></tr>
+  <tr><td>某某发的东西跳过</td><td>把他加进不赞也不优先的名单</td></tr>
+  <tr><td>它怎么登不上</td><td>检查登录态，需要的话给你二维码重扫</td></tr>
+</table>
+
+<h2>五、它是怎么挑内容的</h2>
+
+<p>你不必设规则，它会自己学 —— 学的依据只有一个：<strong>你赞过谁</strong>。</p>
+
+<h3>不是按"谁赞的人多"，而是按"谁的内容你经常赞"</h3>
+
+<p>这两件事差别很大。一个人一天发 20 条、你赞了 2 条；另一个人一周发 1 条、你赞了那 1 条 —— 后者才是你真正爱看的。工具算的是<strong>点赞比例</strong>，不是总次数。</p>
+
+<h3>还会分辨内容类型</h3>
+
+<p>它会把你看到的内容分成几类，分别记住你喜不喜欢：</p>
+
+<table>
+  <tr><th style="width:130px">类型</th><th>大概长什么样</th></tr>
+  <tr><td>扩列条</td><td>「来扩列」「互关」「加我」这类交友帖</td></tr>
+  <tr><td>画画记录</td><td>画完稿、线稿、摸鱼、上色</td></tr>
+  <tr><td>学习技术</td><td>数学、论文、代码、考试、作业</td></tr>
+  <tr><td>音乐</td><td>歌单、专辑、网易云</td></tr>
+  <tr><td>情绪吐槽</td><td>「好烦」「不想动」「emo」</td></tr>
+  <tr><td>梗图段子</td><td>「哈哈哈哈」「笑死」</td></tr>
+  <tr><td>生活记录</td><td>吃了什么、去了哪、天气</td></tr>
+  <tr><td>多图 / 长文</td><td>三张以上配图，或者一大段话</td></tr>
+</table>
+
+<p>所以就算某个人你整体不太爱看，但你每次都赞他的画画 —— 他的画还是会优先给你。</p>
 
 <div class="note">
-<strong>为什么要有这个</strong>：完整数据一次三千多 token，摘要只要三百多 —— 省 90%。而且顺序是按你自己的口味排的，不是按时间堆。
+<strong>刚用的时候会不准</strong>：样本太少，它只能按"有没有图""文字长短"来猜。多用几天、赞几次，排序就准了。你也可以直接说「重新学一下我的口味」。
 </div>
 
-<p>只想看上次之后的新内容，加一个 <code>--since</code>：</p>
-<pre><code>node scripts/qzone.mjs digest --since</code></pre>
+<h2>六、关于隐私和安全，你该知道的三件事</h2>
 
-<h3>口味是怎么学的</h3>
+<h3>1. 它没有你的密码</h3>
 
-<p>只从一件事上学：<strong>你赞过谁</strong>。你赞得越多的人，TA 的内容在摘要里排得越前。</p>
+<p>登录靠手机 QQ 扫码，和你在电脑上登网页版是一回事。扫码后的登录凭证存在<strong>你自己电脑上</strong>，不会上传到任何地方。</p>
 
-<p>这不需要你打标签、设偏好，也不靠猜测。想更新口味就再跑一次 <code>learn</code>，比如每周一次。</p>
+<h3>2. 那台电脑上的登录目录 = 你的账号</h3>
 
-<div class="warn">
-「很多人赞过」和「你赞过」是两件事。摘要排序看的是<strong>你的</strong>赞，不是总赞数 —— 所以刚用的时候排序可能不准，用几天、赞几次之后就准了。
+<p>装它的目录里有一个存登录状态的地方。<strong>不要把这个目录发给别人、不要传到网盘。</strong> 不想用了就说「退出登录」，它会删掉。</p>
+
+<h3>3. 只有"看"和"赞"</h3>
+
+<p>它不会发东西、不会删东西、不会加好友。<strong>如果哪天它说能替你发说说，那一定是搞错了。</strong></p>
+
+<div class="bad">
+<strong>一条底线</strong>：任何要你输入 QQ 密码、或者要你把 cookie 复制粘贴给它的做法，都<strong>不是</strong>这个工具该有的行为。遇到就拒绝。
 </div>
 
-<h2>五、第三步：点赞</h2>
+<h2>七、常见问题</h2>
 
-<h3>手动赞指定的</h3>
-<pre><code>node scripts/qzone.mjs like abc123</code></pre>
-<p>可以一次给多条：<code>like abc123 def456</code>。两条之间会隔 8 秒，这是为了防止触发风控。</p>
+<h3>它说"读不到动态"</h3>
+<p>八成是登录过期了。让它重新检查登录状态，需要的话会给你一张二维码，用手机 QQ 扫一下就行。</p>
 
-<h3>自动赞（按规则）</h3>
+<h3>它给的内容越来越难看</h3>
+<p>说明口味学偏了。让它「重新学一遍我的口味」，或者直接告诉它「我其实更爱看 XX」。</p>
 
-<p>先设置规则，再打开开关。规则的配置命令形如「键 值」：</p>
+<h3>点赞点多了会不会有事</h3>
+<p>它默认是保守设置：一条隔 8 秒、一次最多 10 条、只赞 24 小时内的。如果你让它调快，风险自己承担 —— <strong>它应该先提醒你这一点</strong>。</p>
 
-<pre><code># 只赞 24 小时内的动态
-node scripts/qzone.mjs config auto.like.maxAgeHours 24
+<h3>我想彻底不用了</h3>
+<p>让它「退出登录并停掉定时任务」，然后把装它的文件夹删掉。登录凭证、下载的图片、记录都在那个文件夹里。</p>
 
-# 一次最多赞 10 条
-node scripts/qzone.mjs config auto.like.maxPerRun 10
+<h3>它会不会自己乱点赞</h3>
+<p>默认<strong>不会</strong>。自动点赞是关着的，要你明确说开才开。而且开了之后你随时可以喊停。</p>
 
-# 只赞这两个人（留空 = 不按人筛）
-node scripts/qzone.mjs config auto.like.allowUsers "张三,李四"
-
-# 永远不赞这个人
-node scripts/qzone.mjs config auto.like.denyUsers "某某"
-
-# 正文含这些词就不赞
-node scripts/qzone.mjs config auto.like.denyKeywords "求转发,广告"
-</code></pre>
-
-<div class="warn">
-<strong>强烈建议先试运行一次</strong>，看看它会赞哪些、跳过哪些，确认没问题再真的开：
-<pre><code>node scripts/qzone.mjs auto --dry-run --pretty</code></pre>
-</div>
-
-<h3>真正开启</h3>
-
-<pre><code># 打开开关
-node scripts/qzone.mjs on
-
-# 挂成定时任务，每 30 分钟跑一次（关掉窗口也会跑）
-node scripts/qzone.mjs service install --interval 30
-</code></pre>
-
-<h3>想停下来的三种方式</h3>
-
-<table>
-  <tr><th style="width:150px">命令</th><th>效果</th><th>什么时候用</th></tr>
-  <tr><td><code>pause</code></td><td>立刻停手，不改配置</td><td>临时不想让它动，等下还要继续</td></tr>
-  <tr><td><code>off</code></td><td>关掉自动刷开关</td><td>不想要自动赞了</td></tr>
-  <tr><td><code>service uninstall</code></td><td>卸掉定时任务</td><td>彻底不让它自己跑</td></tr>
-</table>
-
-<p>恢复用 <code>resume</code>（对应 pause）和 <code>on</code>（对应 off）。</p>
-
-<h2 class="pb">六、常用命令一览</h2>
-
-<table>
-  <tr><th style="width:230px">命令</th><th>作用</th></tr>
-  <tr><td><code>node scripts/qzone.mjs login</code></td><td>扫码登录</td></tr>
-  <tr><td><code>node scripts/qzone.mjs status</code></td><td>看登录了没、开关开没开</td></tr>
-  <tr><td><code>node scripts/qzone.mjs feed</code></td><td>读动态</td></tr>
-  <tr><td><code>node scripts/qzone.mjs digest</code></td><td>看摘要（推荐，最省）</td></tr>
-  <tr><td><code>node scripts/qzone.mjs digest --images</code></td><td>摘要 + 看配图</td></tr>
-  <tr><td><code>node scripts/qzone.mjs learn</code></td><td>学一次口味</td></tr>
-  <tr><td><code>node scripts/qzone.mjs like &lt;编号&gt;</code></td><td>给指定动态点赞</td></tr>
-  <tr><td><code>node scripts/qzone.mjs auto --dry-run</code></td><td>预演：只说会赞什么，不动手</td></tr>
-  <tr><td><code>node scripts/qzone.mjs auto</code></td><td>跑一轮：读 + 按规则赞</td></tr>
-  <tr><td><code>node scripts/qzone.mjs on</code> / <code>off</code></td><td>开 / 关自动刷</td></tr>
-  <tr><td><code>node scripts/qzone.mjs pause</code> / <code>resume</code></td><td>紧急停 / 恢复</td></tr>
-  <tr><td><code>node scripts/qzone.mjs config</code></td><td>看全部设置</td></tr>
-  <tr><td><code>node scripts/qzone.mjs service install</code></td><td>挂定时任务</td></tr>
-  <tr><td><code>node scripts/qzone.mjs logout</code></td><td>退出登录</td></tr>
-</table>
-
-<h2>七、文件都在哪</h2>
-
-<p>代码在 <code>D:\qzone-skill</code>。你自己的数据不在代码里，在：</p>
-
-<pre><code>C:\Users\你的用户名\AppData\Roaming\qzone-skill\
-├─ config.json     你的设置
-├─ state.json      赞过哪些（用来去重，不用手改）
-├─ browser\        登录状态（等于你的账号，别发给别人）
-├─ out\            二维码、截图
-└─ logs\auto.log   定时任务的运行日志</code></pre>
-
-<div class="warn">
-<code>browser</code> 这个文件夹等同于你的 QQ 空间登录状态。不要打包发人、不要传到网盘。要退出登录就运行 <code>logout</code>，它会把这个文件夹删掉。
-</div>
-
-<h2>八、常见问题</h2>
-
-<h3>读出来是 0 条</h3>
-<p>八成是登录失效了。跑 <code>status</code>，看 <code>loggedIn</code> 是不是 <code>false</code>；是的话重新 <code>login</code>。</p>
-
-<h3>点赞说「点了但状态没变」</h3>
-<p>通常是赞得太频繁被风控了。<strong>停下来，隔几个小时再说，不要连着试</strong>，越试越糟。</p>
-
-<h3>定时任务装了但没动静</h3>
-<p>先看日志有没有新内容：</p>
-<pre><code>Get-Content "$env:APPDATA\qzone-skill\logs\auto.log" -Encoding utf8 -Tail 20</code></pre>
-<p>没有新内容就查任务在不在：<code>node scripts/qzone.mjs service status</code>。</p>
-
-<h3>想让 AI 自己去刷</h3>
-<p>把 <code>SKILL.md</code> 给你的 AI（比如支持技能的助手）就行。里面写清了每个命令怎么用、什么时候不该用。</p>
-
-<h3>会不会被封号</h3>
-<p>说实话：<strong>这是非官方用法，有风险</strong>。频率低风险小，但没法向你保证。默认参数（8 秒一条、一次最多 10 条）是保守值，不建议调高。</p>
-
-<h2>九、一句话总结</h2>
+<h2>八、一句话总结</h2>
 
 <ol>
-  <li><code>login</code> 扫一次码</li>
-  <li><code>feed</code> 看一眼</li>
-  <li><code>auto --dry-run</code> 预演一下</li>
-  <li><code>on</code> + <code>service install</code> 开起来</li>
-  <li>想停就 <code>pause</code> 或 <code>off</code></li>
+  <li>第一次：让它装好，你扫一次码，回答四个问题</li>
+  <li>之后：想看就说「看看空间有什么」</li>
+  <li>不满意：直接说「多给几条」「别看某类」「别点赞」</li>
+  <li>不用了：让它停掉，把文件夹删掉</li>
 </ol>
 
 <p class="muted" style="margin-top:26px">
-本工具与腾讯公司无关，使用非官方途径操作 QQ 空间，请自行评估风险。页面改版可能导致失效，届时用 <code>explore</code> 命令查看当前页面结构。
+本工具与腾讯公司无关。QQ 空间未开放此用途的接口，使用非官方途径存在账号风险，请自行评估。
 </p>
 
 </body>
