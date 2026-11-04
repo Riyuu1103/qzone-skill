@@ -1,38 +1,57 @@
-// 隐私扫描：仓库里有没有真实账号、好友名、本地路径
-import { execFileSync } from 'node:child_process';
-import { readFileSync, statSync } from 'node:fs';
+// 隐私扫描：查仓库里有没有真实的账号、本机路径、好友昵称
+//
+// 设计上有个坑要注意：**不要把真实账号写进这个脚本当检测目标**，
+// 否则脚本本身就成了泄露源。所以这里只放通用模式（QQ 号格式、本机路径格式），
+// 具体要额外检查的字符串放到仓库外的 patterns 文件里。
+//
+// 用法：
+//   node test/privacy-scan.mjs
+//   node test/privacy-scan.mjs --patterns "C:/path/to/my-patterns.json"
+//
+// patterns 文件格式（放在仓库外，别提交）：
+//   { "patterns": [{ "name": "我的账号", "re": "123456789" }] }
 
-const root = 'D:/qzone-skill';
+import { execFileSync } from 'node:child_process';
+import { readFileSync, statSync, existsSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+
+// 通用模式：不指向任何具体的人，只抓「看起来像真实数据」的东西
+const GENERIC = [
+  { name: '疑似 QQ 号（9~11 位数字）', re: /(?<![\d.-])\d{9,11}(?![\d.-])/g },
+  { name: 'Windows 绝对路径带用户名', re: /[A-Za-z]:\\+Users\\+[A-Za-z][\w.-]*/g },
+  { name: '/home/ 下的用户名', re: /\/home\/[a-z][\w.-]*/g },
+  { name: '可能的登录凭证', re: /p_skey=[A-Za-z0-9]{16,}|skey=[A-Za-z0-9]{16,}/g },
+];
+
+// 可选：仓库外的私有模式
+let extra = [];
+const pi = process.argv.indexOf('--patterns');
+if (pi > 0 && process.argv[pi + 1]) {
+  const f = process.argv[pi + 1];
+  if (existsSync(f)) {
+    try {
+      const j = JSON.parse(readFileSync(f, 'utf8'));
+      extra = (j.patterns || []).map((p) => ({ name: p.name, re: new RegExp(p.re, 'g') }));
+      console.log(`（已加载 ${extra.length} 条私有模式）`);
+    } catch (e) {
+      console.log('私有模式文件读取失败：', e.message);
+    }
+  }
+}
+
 const files = execFileSync('git', ['-C', root, 'ls-files'], { encoding: 'utf8' })
   .split('\n')
   .map((s) => s.trim())
   .filter(Boolean);
 
-// 真实值（一旦出现在仓库里就算泄露）
-const SENSITIVE = [
-  { name: 'QQ 号', re: /123456789/g },
-  { name: '空间昵称', re: /某某/g },
-  { name: '英文昵称', re: /\bDemoUser\b/g },
-  { name: 'Windows 用户名', re: /USER/gi },
-  { name: '好友-示例甲', re: /示例甲/g },
-  { name: '好友-示例乙', re: /示例乙/g },
-  { name: '好友-示例丁', re: /示例丁/g },
-  { name: '好友-示例人', re: /示例人/g },
-  { name: '好友-示例戊', re: /示例戊/g },
-  { name: '好友-示例丙', re: /示例丙/g },
-  { name: '好友-示例辛', re: /示例辛/g },
-  { name: '好友-示例庚', re: /示例庚/g },
-  { name: '好友-示例壬', re: /示例壬/g },
-  { name: '好友-示例己', re: /示例己/g },
-  { name: '好友-QQ号', re: /\b(1022848171|2693084180|3217432735|1639974490)\b/g },
-  { name: '绝对路径', re: /C:\\\\Users\\\\[A-Za-z]+/g },
-];
-
 let hits = 0;
-const report = [];
+const rows = [];
 
 for (const rel of files) {
-  const abs = `${root}/${rel}`;
+  const abs = join(root, rel);
   let st;
   try {
     st = statSync(abs);
@@ -40,34 +59,37 @@ for (const rel of files) {
     continue;
   }
   if (!st.isFile() || st.size > 5_000_000) continue;
-  // 二进制跳过
-  if (/\.(pdf|png|jpg|webp|gif|ico|zip)$/i.test(rel)) {
-    report.push({ rel, note: '二进制（未扫文本）' });
-    continue;
-  }
+  if (/\.(pdf|png|jpg|jpeg|webp|gif|ico|zip|exe)$/i.test(rel)) continue;
+
   let text;
   try {
     text = readFileSync(abs, 'utf8');
   } catch {
     continue;
   }
-  for (const { name, re } of SENSITIVE) {
+
+  for (const { name, re } of [...GENERIC, ...extra]) {
+    re.lastIndex = 0;
     const m = text.match(re);
-    if (m) {
-      hits++;
-      report.push({ rel, name, count: m.length, sample: m.slice(0, 3).join(', ') });
-    }
+    if (!m) continue;
+    // 明显虚构的连续数字不算（文档里用 123456789 当示例）
+    const real = m.filter((v) =>
+      !/^0?1?23456789\d?$/.test(v) && // 123456789 / 0123456789 这类示例
+      !/^17[5-9]\d{7}$/.test(v) && // 2026 年前后的 Unix 时间戳
+      !/^0+$/.test(v),
+    );
+    if (!real.length) continue;
+    hits++;
+    rows.push({ rel, name, count: real.length, sample: real.slice(0, 2).join(', ') });
   }
 }
 
-console.log(`扫描 ${files.length} 个文件\n`);
+console.log(`\n扫描 ${files.length} 个文件`);
 if (!hits) {
-  console.log('✅ 没有发现敏感内容');
-} else {
-  console.log(`⚠️ 命中 ${hits} 处：`);
-  for (const r of report.filter((x) => x.name)) {
-    console.log(`  ${r.rel}  [${r.name}] ×${r.count}  ${r.sample}`);
-  }
+  console.log('✅ 没有发现疑似真实数据\n');
+  process.exit(0);
 }
-const bin = report.filter((r) => r.note);
-if (bin.length) console.log(`\n未做文本扫描的二进制：${bin.map((b) => b.rel).join(', ')}`);
+console.log(`⚠️ 命中 ${hits} 处：\n`);
+for (const r of rows) console.log(`  ${r.rel}\n    [${r.name}] ×${r.count}  例：${r.sample}`);
+console.log('\n注意：9~11 位数字是通用模式，可能误报（比如时间戳）。逐条看上下文判断。\n');
+process.exit(1);
