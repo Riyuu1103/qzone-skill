@@ -1,4 +1,4 @@
-// 需要浏览器的动作：读动态、点赞、自动刷。
+﻿// 需要浏览器的动作：读动态、点赞、自动刷。
 //
 // 实现策略：全部在真实页面里做，而不是自己拼内部接口。
 //   理由：QQ 空间的内部接口带签名参数（g_tk / curkey / unikey），逆向出来的实现
@@ -114,49 +114,73 @@ const READ_SCRIPT = String.raw`(() => {
 /**
  * 读当前页面的动态（不做点赞，只读）。
  *
- * 关于「能读多少条」：空间是懒加载的，每滚到底一次只多渲染 4 条左右。
- * 所以想多读就得多滚几次；这里用「等卡片数真的涨了才继续」的方式推进，
- * 而不是固定 sleep —— 固定等待会误判成「到底了」而提前收工（踩过）。
+ * 关键：**边滚边抓，累积去重**。
+ * 空间把动态分成多页（`.feed_page_container > ul[data-page]`），
+ * 滚下去会加载新页，但**旧的页会被 DOM 回收**——任何时刻页面上只有约 18 条。
+ * 所以「滚到底再抓一次」最多只能拿到 18 条，必须每滚一轮就抓一次，
+ * 把结果按 key 累积起来。这样能读到几十上百条，远超单屏上限。
  *
  * @param {object} opts
  * @param {number} opts.limit 目标条数（0 = 只读首屏，不滚）
- * @param {number} opts.maxScrolls 最多滚几次（安全上限，防止无限滚）
- * @param {number} opts.perScrollMs 每次滚动后最多等多久加载
+ * @param {number} opts.maxScrolls 最多滚几次
+ * @param {number} opts.perScrollMs 每轮滚动后最多等多久
  */
-export async function readFeed({ limit = 0, maxScrolls = 14, perScrollMs = 6500 } = {}) {
+export async function readFeed({ limit = 0, maxScrolls, perScrollMs = 3000 } = {}) {
+  // 每轮大约能捞到 4 条，按目标条数算需要滚多少次（多留几轮余量）
+  const rounds = maxScrolls ?? (limit > 0 ? Math.min(200, Math.ceil(limit / 4) + 6) : 0);
   return withPage(async ({ cdp, sessionId }) => {
-    const countCards = () =>
-      evaluate(cdp, sessionId, `document.querySelectorAll('li.f-single').length`).catch(() => 0);
+    const collected = new Map(); // key -> item
+    let probe = null;
+
+    const harvest = async () => {
+      const batch = await evaluate(cdp, sessionId, READ_SCRIPT).catch(() => null);
+      if (!batch) return 0;
+      probe = batch.probe;
+      let added = 0;
+      for (const it of batch.items) {
+        if (!it.key || collected.has(it.key)) continue;
+        collected.set(it.key, it);
+        added++;
+      }
+      return added;
+    };
 
     await sleep(2000);
-    let count = await countCards();
+    await harvest(); // 首屏先收一次
+
     let stall = 0;
+    for (let i = 0; i < rounds; i++) {
+      if (limit > 0 && collected.size >= limit) break;
 
-    for (let i = 0; i < maxScrolls; i++) {
-      if (limit > 0 && count >= limit) break;
+      // 瞄准最后一条动态往下推：直接滚 body 底部会被「评论自动展开」撑高，永远追不上
+      await evaluate(
+        cdp,
+        sessionId,
+        `(() => {
+          const cards = document.querySelectorAll('li.f-single');
+          const last = cards[cards.length - 1];
+          if (last) last.scrollIntoView({ block: 'center' });
+          window.scrollBy(0, 800);
+          return true;
+        })()`,
+      ).catch(() => {});
 
-      await evaluate(cdp, sessionId, 'window.scrollTo(0, document.body.scrollHeight); true').catch(() => {});
-
-      // 轮询等新卡片渲染出来，而不是固定睡一段时间
+      // 等新页加载出来（比固定 sleep 稳）
       const deadline = Date.now() + perScrollMs;
-      let next = count;
+      let added = 0;
       while (Date.now() < deadline) {
-        await sleep(500);
-        next = await countCards();
-        if (next > count) break;
+        await sleep(700);
+        added = await harvest();
+        if (added > 0) break;
       }
 
-      if (next > count) {
-        count = next;
-        stall = 0;
-      } else {
-        stall++;
-        // 连续两次滚到底都不再增加，才认为是真到底了
-        if (stall >= 2) break;
-      }
+      if (added > 0) stall = 0;
+      else if (++stall >= 5) break; // 连续五轮没新增才算真到底（网络抖动时别急着收工）
     }
 
-    return evaluate(cdp, sessionId, READ_SCRIPT);
+    // 按时间从新到旧排（页面本来就是倒序，但多页拼接后要保证顺序）
+    const items = [...collected.values()];
+    return { items, probe };
   });
 }
 
